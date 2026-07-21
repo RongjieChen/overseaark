@@ -23,7 +23,21 @@ OVERSEAARK_ADAPTER_MODE=command
 
 `OVERSEAARK_FRONTEND_PORT` remains in the env file for compatibility, but production frontend assets are mounted by FastAPI on `OVERSEAARK_BACKEND_PORT` when `runtime/frontend-dist` exists. If operating from `root` with a different checkout path, edit `.env` before running bootstrap.
 
-## Bootstrap
+The `.env` copy is optional when the documented DGX paths and port are acceptable. The repository auto-selects command mode on Linux aarch64 with NVIDIA available.
+
+## One-command Start
+
+The normal DGX entrypoint is:
+
+```bash
+./overseaark start
+```
+
+It performs an idempotent dependency preflight, invokes bootstrap only when needed, verifies locked model sizes and SHA256 values, repairs missing/corrupt files through resumable downloads, starts the app, and requires the health endpoint to pass. Concurrent start/bootstrap operations are excluded by a host lock. Network interruption is recoverable by rerunning the same command.
+
+The first download is about 152 GB. `OVERSEAARK_AUTO_BOOTSTRAP=0` and `OVERSEAARK_AUTO_DOWNLOAD_MODELS=0` convert startup to strict fail-fast mode.
+
+## Explicit Bootstrap
 
 Mock mode, local smoke only. This must override `.env.example`, which defaults to command mode:
 
@@ -49,6 +63,7 @@ Heavy framework pins installed by bootstrap:
 
 | Purpose | Framework | Commit |
 | --- | --- | --- |
+| Step-3.7 LLM/VLM | ggml-org/llama.cpp | `76f46ad29d61fd8c1401e8221842934bf62a6064` |
 | Step1X image | Peyton-Chen/diffusers `step1xedit_v1p2` | `f5f1c98fa00cb4d0479af1b1b1c17d724345963a` |
 | Cosmos3 video | NVIDIA/cosmos-framework | `ed8287fd7477113f8ac4f6b84290514d55cf0cdc` |
 | ASR/TTS | NVIDIA-NeMo/NeMo | `93b15b1f423ddc8e0d189810fdd8304091d9b1bd` |
@@ -92,6 +107,8 @@ OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./o
 ./overseaark logs all
 ./overseaark stop
 ```
+
+`start` is safe to repeat after completion: valid dependencies and model files are reused, and an already-running healthy backend is retained.
 
 Current service layout:
 
@@ -220,15 +237,15 @@ OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./o
 
 With command mode and verified models, the same four benchmark commands invoke the real local adapter processes. `benchmark audio` performs three cycles across zh/en/ja, two Magpie voices per language, specified and automatic ASR, and writes its evidence to `OVERSEAARK_DATA_DIR/benchmarks/`.
 
-Current mock validation coverage is 19 backend tests, 7 frontend tests, and 14 E2E mock contract tests. A DGX command-mode Step-3.7 schema run reached the 900-second safety limit and verified process-group/CUDA cleanup, but did not satisfy the result contract. Do not claim the 10-minute full-flow target, ASR WER, TTS MOS, Step-3.7 quality, image quality, or Cosmos video quality until the corresponding DGX acceptance run passes.
+Current mock validation coverage is 19 backend tests, 7 frontend tests, 14 E2E mock contract tests, and an adversarial shell lifecycle suite for auto-repair behavior. A DGX command-mode Step-3.7 schema run reached the 900-second safety limit and verified process-group/CUDA cleanup, but did not satisfy the result contract. Do not claim the 10-minute full-flow target, ASR WER, TTS MOS, Step-3.7 quality, image quality, or Cosmos video quality until the corresponding DGX acceptance run passes.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `frontend dist not present` | Frontend not built | Run `./overseaark bootstrap` or `cd frontend && npm run build`; Vite writes directly into `runtime/frontend-dist`. |
+| `bootstrap finished but runtime dependency preflight still fails` | A pinned heavy environment did not finish installing | Rerun `./overseaark start`; downloads/install caches are reused. Inspect the preceding package error if it repeats. |
 | Frontend falls back to degraded preview | Backend unavailable or API failure | Check `./overseaark status`, `./overseaark logs backend`, and `http://127.0.0.1:8000/api/v1/health`. |
 | `command adapter mode requires commands for...` | Missing command envs | Use `local_runtime_env` defaults through `./overseaark start` or set all `OVERSEAARK_*_COMMAND` variables. |
-| Step-3.7 adapter exits with missing `llama-cli` | `OVERSEAARK_LLAMA_CLI` path is absent | Build llama.cpp and set `OVERSEAARK_LLAMA_CLI`, or install it at `/root/llama.cpp/build/bin/llama-cli`. |
-| Model verification fails on shard 2 | Incomplete Step-3.7 file | Ensure shard 2 is exactly `46381975392` bytes. |
+| Step-3.7 adapter exits with missing `llama-cli` | `OVERSEAARK_LLAMA_CLI` path is absent | Rerun `./overseaark start`; automatic bootstrap builds the pinned CUDA target. |
+| Model verification fails | Missing, truncated, or SHA-mismatched file | Rerun `./overseaark start`; the invalid locked file is removed and only the incomplete model is fetched. |
 | Upload rejected with 415 | Unsupported content type | Use PNG/JPEG/WebP for products and WAV/MP3/M4A/WebM for audio. |

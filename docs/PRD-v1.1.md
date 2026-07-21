@@ -173,9 +173,10 @@ SSE 用于呈现进度和日志，可包含 campaign/stage 状态变化、内部
 ```bash
 cd /home/Developer/overseaark
 cp .env.example .env
-./overseaark bootstrap
 ./overseaark start
 ```
+
+`start` 必须是幂等一键入口：依赖缺失时自动 bootstrap，必需模型缺失、尺寸错误或 SHA256 不匹配时自动断点续传修复，然后启动服务并通过健康检查。`bootstrap` 和 `models sync` 保留为显式运维命令。
 
 开发/烟测模式允许跳过重型模型：
 

@@ -3,8 +3,15 @@ set -Eeuo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
+bootstrap_owns_lock=0
+if [[ "${OVERSEAARK_OPERATION_LOCK_HELD:-0}" != "1" ]]; then
+  acquire_operation_lock bootstrap
+  bootstrap_owns_lock=1
+  trap release_operation_lock EXIT
+fi
+
 install_system_packages() {
-  if have ffmpeg && node22_available; then
+  if have ffmpeg && node22_available && have git && have cmake && have c++; then
     return 0
   fi
   if [[ "$(uname -s)" != "Linux" ]] || ! have apt-get; then
@@ -18,8 +25,35 @@ install_system_packages() {
     sudo_cmd=(sudo)
   fi
   "${sudo_cmd[@]}" apt-get update
-  "${sudo_cmd[@]}" apt-get install -y ca-certificates curl ffmpeg git-lfs xz-utils
+  "${sudo_cmd[@]}" apt-get install -y \
+    build-essential ca-certificates cmake curl ffmpeg git git-lfs pkg-config xz-utils
   install_node22 "${sudo_cmd[@]}"
+}
+
+install_llama_cpp() {
+  local revision="76f46ad29d61fd8c1401e8221842934bf62a6064"
+  local current_cli="${OVERSEAARK_LLAMA_CLI:-/root/llama.cpp/build/bin/llama-cli}"
+  if [[ -x "$current_cli" ]]; then
+    export OVERSEAARK_LLAMA_CLI="$current_cli"
+    log "llama-cli already available"
+    return 0
+  fi
+  have git && have cmake || die "git and cmake are required to build llama.cpp"
+  have nvcc || die "CUDA nvcc is required to build llama.cpp on DGX Spark"
+  local checkout="$REPO_DIR/vendor/llama.cpp"
+  mkdir -p "$REPO_DIR/vendor"
+  if [[ ! -d "$checkout/.git" ]]; then
+    git clone https://github.com/ggml-org/llama.cpp.git "$checkout"
+  fi
+  if ! git -C "$checkout" cat-file -e "${revision}^{commit}"; then
+    git -C "$checkout" fetch --depth 1 origin "$revision"
+  fi
+  git -C "$checkout" checkout --detach "$revision"
+  cmake -S "$checkout" -B "$checkout/build" \
+    -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release
+  cmake --build "$checkout/build" --config Release --target llama-cli -j "$(nproc)"
+  export OVERSEAARK_LLAMA_CLI="$checkout/build/bin/llama-cli"
+  [[ -x "$OVERSEAARK_LLAMA_CLI" ]] || die "llama.cpp build did not produce llama-cli"
 }
 
 node22_available() {
@@ -168,6 +202,9 @@ if is_truthy "$OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP"; then
   install_system_packages
   create_python_env
   install_frontend
+  if ! is_truthy "$OVERSEAARK_MOCK_MODE"; then
+    install_llama_cpp
+  fi
   create_adapter_envs
 else
   warn "OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP=0; skipping dependency installation"
@@ -176,7 +213,11 @@ fi
 if is_truthy "$OVERSEAARK_SKIP_MODELS"; then
   warn "OVERSEAARK_SKIP_MODELS=1; skipping model sync"
 else
-  bash "$SCRIPT_DIR/models.sh" sync
+  OVERSEAARK_OPERATION_LOCK_HELD=1 bash "$SCRIPT_DIR/models.sh" sync
 fi
 
+if (( bootstrap_owns_lock == 1 )); then
+  release_operation_lock
+  trap - EXIT
+fi
 log "bootstrap complete"

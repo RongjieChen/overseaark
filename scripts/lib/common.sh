@@ -15,6 +15,8 @@ load_env() {
       OVERSEAARK_LOG_DIR OVERSEAARK_PID_DIR OVERSEAARK_HOST
       OVERSEAARK_BACKEND_PORT OVERSEAARK_FRONTEND_PORT
       OVERSEAARK_SKIP_MODELS OVERSEAARK_MOCK_MODE
+      OVERSEAARK_AUTO_BOOTSTRAP OVERSEAARK_AUTO_DOWNLOAD_MODELS
+      OVERSEAARK_STARTUP_TIMEOUT
       OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP OVERSEAARK_SYNC_OPTIONAL_MODELS
       OVERSEAARK_ADAPTER_MODE OVERSEAARK_ALLOW_DEGRADED_VIDEO
       OVERSEAARK_ADAPTER_TIMEOUT OVERSEAARK_BENCH_TIMEOUT
@@ -58,6 +60,9 @@ load_env() {
   export OVERSEAARK_FRONTEND_PORT="${OVERSEAARK_FRONTEND_PORT:-3000}"
   export OVERSEAARK_SKIP_MODELS="${OVERSEAARK_SKIP_MODELS:-0}"
   export OVERSEAARK_MOCK_MODE="${OVERSEAARK_MOCK_MODE:-0}"
+  export OVERSEAARK_AUTO_BOOTSTRAP="${OVERSEAARK_AUTO_BOOTSTRAP:-1}"
+  export OVERSEAARK_AUTO_DOWNLOAD_MODELS="${OVERSEAARK_AUTO_DOWNLOAD_MODELS:-1}"
+  export OVERSEAARK_STARTUP_TIMEOUT="${OVERSEAARK_STARTUP_TIMEOUT:-90}"
   export OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP="${OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP:-1}"
   export OVERSEAARK_SYNC_OPTIONAL_MODELS="${OVERSEAARK_SYNC_OPTIONAL_MODELS:-0}"
   export OVERSEAARK_ADAPTER_MODE="${OVERSEAARK_ADAPTER_MODE:-$default_adapter_mode}"
@@ -67,6 +72,50 @@ load_env() {
 
 ensure_dirs() {
   mkdir -p "$OVERSEAARK_MODELS_DIR" "$OVERSEAARK_DATA_DIR" "$OVERSEAARK_LOG_DIR" "$OVERSEAARK_PID_DIR"
+}
+
+acquire_operation_lock() {
+  local name="${1:-bootstrap}"
+  ensure_dirs
+  if have flock; then
+    exec {OVERSEAARK_OPERATION_LOCK_FD}>"$OVERSEAARK_PID_DIR/$name.lock"
+    flock -n "$OVERSEAARK_OPERATION_LOCK_FD" || \
+      die "another start/bootstrap operation is already running"
+    OVERSEAARK_OPERATION_LOCK_KIND="flock"
+    return 0
+  fi
+
+  local lock_path="$OVERSEAARK_PID_DIR/$name.lock.owner"
+  if ! ln -s "$$" "$lock_path" 2>/dev/null; then
+    local owner=""
+    owner="$(readlink "$lock_path" 2>/dev/null || true)"
+    if pid_alive "$owner"; then
+      die "another start/bootstrap operation is already running pid=$owner"
+    fi
+    rm -f "$lock_path"
+    ln -s "$$" "$lock_path" 2>/dev/null || \
+      die "failed to acquire operation lock: $lock_path"
+  fi
+  OVERSEAARK_OPERATION_LOCK_KIND="symlink"
+  OVERSEAARK_OPERATION_LOCK_PATH="$lock_path"
+}
+
+release_operation_lock() {
+  if [[ "${OVERSEAARK_OPERATION_LOCK_KIND:-}" == "flock" ]] && \
+      [[ -n "${OVERSEAARK_OPERATION_LOCK_FD:-}" ]] && have flock; then
+    flock -u "$OVERSEAARK_OPERATION_LOCK_FD" || true
+    [[ "$OVERSEAARK_OPERATION_LOCK_FD" =~ ^[0-9]+$ ]] && \
+      eval "exec ${OVERSEAARK_OPERATION_LOCK_FD}>&-"
+    unset OVERSEAARK_OPERATION_LOCK_FD
+  fi
+  if [[ "${OVERSEAARK_OPERATION_LOCK_KIND:-}" == "symlink" ]] && \
+      [[ -n "${OVERSEAARK_OPERATION_LOCK_PATH:-}" ]]; then
+    if [[ "$(readlink "$OVERSEAARK_OPERATION_LOCK_PATH" 2>/dev/null || true)" == "$$" ]]; then
+      rm -f "$OVERSEAARK_OPERATION_LOCK_PATH"
+    fi
+    unset OVERSEAARK_OPERATION_LOCK_PATH
+  fi
+  unset OVERSEAARK_OPERATION_LOCK_KIND
 }
 
 log() {
@@ -145,6 +194,16 @@ local_runtime_env() {
   export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
   export no_proxy="${no_proxy:-127.0.0.1,localhost}"
   if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
+    local default_llama_cli="/root/llama.cpp/build/bin/llama-cli"
+    if [[ ! -x "$default_llama_cli" && -x "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli" ]]; then
+      default_llama_cli="$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli"
+    fi
+    if [[ "${OVERSEAARK_LLAMA_CLI:-}" == "/root/llama.cpp/build/bin/llama-cli" ]] && \
+        [[ ! -x "$OVERSEAARK_LLAMA_CLI" ]] && \
+        [[ -x "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli" ]]; then
+      unset OVERSEAARK_LLAMA_CLI
+    fi
+    export OVERSEAARK_LLAMA_CLI="${OVERSEAARK_LLAMA_CLI:-$default_llama_cli}"
     export OVERSEAARK_LLM_COMMAND="${OVERSEAARK_LLM_COMMAND:-/usr/bin/env python3 $SCRIPT_DIR/adapters/llm_step.py}"
     export OVERSEAARK_IMAGE_COMMAND="${OVERSEAARK_IMAGE_COMMAND:-$REPO_DIR/.venv-step1x/bin/python $SCRIPT_DIR/adapters/image_step1x.py}"
     export OVERSEAARK_VIDEO_COMMAND="${OVERSEAARK_VIDEO_COMMAND:-$REPO_DIR/vendor/cosmos-framework/.venv/bin/python $SCRIPT_DIR/adapters/video_cosmos3.py}"

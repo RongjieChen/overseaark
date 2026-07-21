@@ -4,7 +4,7 @@ OverseaArk is a local-first multimodal campaign workbench for cross-border marke
 
 Current implementation status is mixed and documented deliberately:
 
-- Implemented: FastAPI campaign API, multipart product-image uploads, SQLite campaign/stage/event storage, six product campaign stages, SSE progress, rerun-from-stage, cancel, zip export, mock model hooks, command model hook boundary, adapter scripts, frontend workbench shell, degraded local frontend fallback, root lifecycle scripts.
+- Implemented: FastAPI campaign API, multipart product-image uploads, SQLite campaign/stage/event storage, six product campaign stages, SSE progress, rerun-from-stage, cancel, zip export, mock model hooks, command model hook boundary, adapter scripts, frontend workbench shell, degraded local frontend fallback, and self-healing root lifecycle scripts.
 - Implemented as local adapter scripts. DGX validation has confirmed the complete pinned model manifest, offline llama.cpp process isolation, timeout cleanup, and mock E2E; full schema-valid Step-3.7, Step1X, Cosmos3, Nemotron, and Magpie quality runs remain acceptance work.
 - Not implemented in code: ComfyUI, OpenClaw, or cloud inference APIs.
 - Current production scripts serve the FastAPI API and built frontend from `127.0.0.1:8000` when `runtime/frontend-dist` exists. Do not use a `5173` tunnel for production.
@@ -40,7 +40,7 @@ Each stage has one retry. After a final failure, later stages are skipped and th
 
 | Role | Model / script | Revision | Pinned bytes | License | Status |
 | --- | --- | --- | ---: | --- | --- |
-| LLM/VLM | `stepfun-ai/Step-3.7-Flash-GGUF` via `scripts/adapters/llm_step.py` and `llama-cli` | `0b69336d2fd2adfdef9c66e425f7778196c31482` | 97.77 GB | Apache-2.0 | Required; wrapper invokes local `/root/llama.cpp/build/bin/llama-cli` by default. |
+| LLM/VLM | `stepfun-ai/Step-3.7-Flash-GGUF` via `scripts/adapters/llm_step.py` and `llama-cli` | `0b69336d2fd2adfdef9c66e425f7778196c31482` | 97.77 GB | Apache-2.0 | Required; launcher reuses `/root/llama.cpp` when present or builds the pinned repo-local CUDA binary. |
 | Image | `stepfun-ai/Step1X-Edit-v1p2` via `scripts/adapters/image_step1x.py` | `ca85b97fd19f2235dc0d6fd3633d1319f169e149` | 41.80 GB | Apache-2.0 | Required core image model; script requires pinned Step1X diffusers fork. |
 | Optional T2I | `nv-community/Cosmos-Predict2-0.6B-Text2Image` mirror of NVIDIA upstream | ModelScope `master`, upstream `dd55b6858b22ad569976bff207880b8fea839da7` | 4.32 GB | NVIDIA Open Model License | Optional inspiration images only; it is not the video fallback. |
 | Video | `nv-community/Cosmos3-Edge` mirror of `nvidia/Cosmos3-Edge` via `scripts/adapters/video_cosmos3.py` | ModelScope `master`, upstream `6f58f6b4c91288838e60b6bcb2cc45d997e961de` | 9.13 GB | NVIDIA Open Model Development Weight License 1.1 | Required; script requires pinned Cosmos framework checkout. |
@@ -57,25 +57,23 @@ Pinned framework commits:
 
 See [docs/MODEL_LICENSES.md](docs/MODEL_LICENSES.md).
 
-## Quick Start
+## One-command Start
 
 Mock/developer mode:
 
 ```bash
-cp .env.example .env
-OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark bootstrap
 OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark start
 ```
 
-Production-like local binding:
+DGX Spark command mode:
 
 ```bash
-cp .env.example .env
-./overseaark bootstrap
 ./overseaark start
 ```
 
-`.env.example` defaults to `OVERSEAARK_ADAPTER_MODE=command`. Mock adapters require explicit environment overrides.
+On the first run, `start` installs missing application and pinned inference dependencies, builds the frontend, builds pinned CUDA `llama.cpp` when needed, verifies every required model, downloads only missing or invalid locked files, starts FastAPI, and waits for `/api/v1/health`. Downloads are resumable; rerun the same command after a connection interruption. The required model set is about 152 GB, so the first run can take substantial time.
+
+`bootstrap` and `models sync` remain available as explicit maintenance commands. Set `OVERSEAARK_AUTO_BOOTSTRAP=0` or `OVERSEAARK_AUTO_DOWNLOAD_MODELS=0` for fail-fast startup. A same-size file with the wrong SHA256 is removed precisely and fetched again; valid locked files are retained. `.env.example` defaults to command mode and localhost-only serving.
 
 Use:
 
@@ -153,7 +151,7 @@ OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark models verify
 OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark test
 ```
 
-Current test coverage in the tree: backend tests pass 19 cases, frontend tests pass 7 cases, and the implemented E2E mock contract passes 14 cases. These tests validate orchestration, cancellation races, nested process-group cleanup, adapter schemas, API contracts, frontend normalization/build, and mock-mode packaging; they do not prove DGX end-to-end model inference quality.
+Current test coverage in the tree: backend tests pass 19 cases, frontend tests pass 7 cases, and the implemented E2E mock contract passes 14 cases. A shell-level adversarial lifecycle suite additionally injects missing models, same-size hash corruption, missing dependencies, disabled repair, malformed startup settings, portable-lock contention, and repeated-start preflights. These tests validate orchestration, cancellation races, nested process-group cleanup, adapter schemas, API contracts, frontend normalization/build, mock-mode packaging, and one-command recovery; they do not prove DGX end-to-end model inference quality.
 
 The latest DGX Step-3.7 schema benchmark reached its 900-second safety limit and was correctly terminated without a residual `llama-cli` process or CUDA allocation. Therefore the PRD's cached full-flow target of 10 minutes is not yet claimed; treat it as an optimization acceptance gate, not a measured result.
 

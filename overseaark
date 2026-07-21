@@ -12,7 +12,7 @@ Usage:
 
 Commands:
   bootstrap             Create local envs, install app dependencies, optionally fetch models
-  start                 Start backend/frontend processes on localhost-only bindings
+  start                 Bootstrap/repair as needed, then start and health-check the app
   stop                  Stop managed processes
   restart               Stop then start
   status                Show process, path, and model status
@@ -30,6 +30,7 @@ Environment:
   Copy .env.example to .env and adjust paths or ports.
   Set OVERSEAARK_SKIP_MODELS=1 to skip model download/strict model presence checks.
   Set OVERSEAARK_MOCK_MODE=1 for local developer smoke runs without GPU/model assets.
+  Set OVERSEAARK_AUTO_BOOTSTRAP=0 or OVERSEAARK_AUTO_DOWNLOAD_MODELS=0 for strict fail-fast startup.
 USAGE
 }
 

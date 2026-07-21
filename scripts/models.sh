@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
-manifest="$REPO_DIR/model-manifest.lock.json"
+manifest="${OVERSEAARK_MODEL_MANIFEST:-$REPO_DIR/model-manifest.lock.json}"
 
 json_query() {
   local expr="$1"
@@ -11,9 +11,17 @@ json_query() {
   py="$(python_bin)" || die "python3 is required"
   "$py" - "$manifest" "$expr" <<'PY'
 import json, sys
+from pathlib import Path
 path, expr = sys.argv[1], sys.argv[2]
 data = json.load(open(path, encoding="utf-8"))
 for model in data["models"]:
+    local_dir = Path(model["local_dir"])
+    if local_dir.is_absolute() or ".." in local_dir.parts:
+        raise SystemExit(f"unsafe model local_dir rejected: {model['local_dir']}")
+    for item in model.get("files", []):
+        relative = Path(item["path"])
+        if relative.is_absolute() or ".." in relative.parts:
+            raise SystemExit(f"unsafe model manifest path rejected: {item['path']}")
     if expr == "models":
         print("\t".join([
             model["id"],
@@ -114,28 +122,103 @@ model_files_complete() {
   local py
   py="$(python_bin)" || return 1
   "$py" - "$manifest" "$id" "$dest" <<'PY'
-import glob, json, os, sys
+import glob, hashlib, json, os, sys
+from pathlib import Path
 
 manifest_path, model_id, root = sys.argv[1:]
 data = json.load(open(manifest_path, encoding="utf-8"))
 model = next(item for item in data["models"] if item["id"] == model_id)
+resolved_root = Path(root).resolve()
 files = [item for item in model.get("files", []) if item.get("required", True)]
 if not files:
     raise SystemExit(0 if os.path.isdir(root) and any(os.scandir(root)) else 1)
 for item in files:
+    relative = Path(item["path"])
+    if relative.is_absolute() or ".." in relative.parts:
+        raise SystemExit(1)
     matches = glob.glob(os.path.join(root, item["path"]))
     if not matches:
         raise SystemExit(1)
+    for path in matches:
+        try:
+            Path(path).resolve().relative_to(resolved_root)
+        except ValueError:
+            raise SystemExit(1)
     expected_size = item.get("size")
     if expected_size is not None and os.path.getsize(matches[0]) != int(expected_size):
         raise SystemExit(1)
+    expected_hash = item.get("sha256")
+    if expected_hash:
+        digest = hashlib.sha256()
+        with open(matches[0], "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest().lower() != expected_hash.lower():
+            raise SystemExit(1)
+PY
+}
+
+remove_invalid_model_files() {
+  local id="$1" dest="$2"
+  local py
+  py="$(python_bin)" || die "python3 is required"
+  "$py" - "$manifest" "$id" "$dest" <<'PY'
+import glob, hashlib, json, os, sys
+from pathlib import Path
+
+manifest_path, model_id, root = sys.argv[1:]
+data = json.load(open(manifest_path, encoding="utf-8"))
+model = next(item for item in data["models"] if item["id"] == model_id)
+resolved_root = Path(root).resolve()
+invalid_paths = []
+for item in model.get("files", []):
+    if not item.get("required", True):
+        continue
+    relative = Path(item["path"])
+    if relative.is_absolute() or ".." in relative.parts:
+        raise SystemExit(f"unsafe model manifest path rejected: {item['path']}")
+    for path_value in glob.glob(os.path.join(root, item["path"])):
+        path = Path(path_value)
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(resolved_root)
+        except ValueError:
+            raise SystemExit(f"model file escapes locked root: {path}")
+        if not path.is_file() or path.is_symlink():
+            raise SystemExit(f"model cleanup refuses non-regular file: {path}")
+        invalid = False
+        expected_size = item.get("size")
+        if expected_size is not None and path.stat().st_size != int(expected_size):
+            invalid = True
+        expected_hash = item.get("sha256")
+        if expected_hash and not invalid:
+            digest = hashlib.sha256()
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            invalid = digest.hexdigest().lower() != expected_hash.lower()
+        if invalid:
+            invalid_paths.append(path)
+for path in invalid_paths:
+    path.unlink()
+    print(f"[overseaark][warn] removed invalid locked model file {path}", file=sys.stderr)
 PY
 }
 
 sync_models() {
+  local sync_owns_lock=0
+  if [[ "${OVERSEAARK_OPERATION_LOCK_HELD:-0}" != "1" ]]; then
+    acquire_operation_lock bootstrap
+    sync_owns_lock=1
+    trap release_operation_lock EXIT
+  fi
   ensure_dirs
   if is_truthy "$OVERSEAARK_SKIP_MODELS"; then
     warn "OVERSEAARK_SKIP_MODELS=1; model sync skipped"
+    if (( sync_owns_lock == 1 )); then
+      release_operation_lock
+      trap - EXIT
+    fi
     return 0
   fi
 
@@ -156,6 +239,7 @@ sync_models() {
       log "locked model files already complete for $id; skipping network sync"
       continue
     fi
+    remove_invalid_model_files "$id" "$dest"
     log "syncing $id from $provider:$source@$revision"
     case "$provider" in
       modelscope) sync_modelscope "$source" "$revision" "$dest" "$includes" ;;
@@ -165,6 +249,10 @@ sync_models() {
   done < <(json_query models)
 
   verify_models
+  if (( sync_owns_lock == 1 )); then
+    release_operation_lock
+    trap - EXIT
+  fi
 }
 
 verify_models() {
@@ -178,6 +266,7 @@ verify_models() {
   py="$(python_bin)" || die "python3 is required"
   "$py" - "$manifest" "$OVERSEAARK_MODELS_DIR" <<'PY'
 import glob, hashlib, json, os, sys
+from pathlib import Path
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 data = json.load(open(manifest_path, encoding="utf-8"))
@@ -192,6 +281,10 @@ def sha256(path):
     return h.hexdigest()
 
 for model in data["models"]:
+    local_dir = Path(model["local_dir"])
+    if local_dir.is_absolute() or ".." in local_dir.parts:
+        errors.append(f"{model['id']}: unsafe local_dir {model['local_dir']}")
+        continue
     local = os.path.join(root, model["local_dir"])
     if not os.path.isdir(local):
         if model.get("required", True):
@@ -207,6 +300,10 @@ for model in data["models"]:
         continue
 
     for item in files:
+        relative = Path(item["path"])
+        if relative.is_absolute() or ".." in relative.parts:
+            errors.append(f"{model['id']}: unsafe file path {item['path']}")
+            continue
         pattern = os.path.join(local, item["path"])
         matches = glob.glob(pattern)
         if not matches:
@@ -217,6 +314,16 @@ for model in data["models"]:
                 errors.append(msg)
             else:
                 warnings.append(msg)
+            continue
+        resolved_local = Path(local).resolve()
+        escaped = []
+        for path in matches:
+            try:
+                Path(path).resolve().relative_to(resolved_local)
+            except ValueError:
+                escaped.append(path)
+        if escaped:
+            errors.append(f"{model['id']}: file path escapes model root: {item['path']}")
             continue
         expected = item.get("sha256", "")
         expected_size = item.get("size")
@@ -246,8 +353,10 @@ print("[overseaark] model manifest verification passed")
 PY
 }
 
-case "${1:-verify}" in
-  sync) sync_models ;;
-  verify) verify_models ;;
-  *) die "models command must be sync or verify" 64 ;;
-esac
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  case "${1:-verify}" in
+    sync) sync_models ;;
+    verify) verify_models ;;
+    *) die "models command must be sync or verify" 64 ;;
+  esac
+fi

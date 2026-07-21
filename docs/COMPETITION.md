@@ -24,9 +24,10 @@ If the backend or a model path is unavailable, the UI must show `partial` and `d
 - Mock mode with deterministic image/audio/video artifacts.
 - Command adapter scripts for LLM, image, video, ASR, and TTS.
 - Working Step-3.7 `llama-cli` command wrapper.
-- Root operations dispatcher: `bootstrap`, `start`, `stop`, `status`, `logs`, `doctor`, `models`, `benchmark`, `test`.
+- Self-healing root dispatcher: one `start` command bootstraps missing dependencies, repairs locked model files, starts the localhost service, and checks health.
 - FastAPI mounts the built frontend from `runtime/frontend-dist`.
 - Implemented E2E suite covers the `/api/v1` contract; mock mode currently passes 14 E2E tests.
+- Adversarial lifecycle tests inject missing models, same-size SHA corruption, missing runtime dependencies, disabled repair, and repeated preflights.
 
 ## Do Not Overclaim
 

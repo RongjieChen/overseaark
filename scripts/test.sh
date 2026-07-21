@@ -92,6 +92,7 @@ OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 run "doctor mock" bash "$REPO_DI
 OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 run "models verify relaxed" bash "$REPO_DIR/overseaark" models verify
 run "backend tests" backend_tests
 run "frontend tests/build" frontend_tests
+run "one-click adversarial lifecycle" bash "$REPO_DIR/tests/e2e/test_oneclick_start.sh"
 run "backend health smoke" health_smoke
 run "tests/e2e" e2e_tests
 
