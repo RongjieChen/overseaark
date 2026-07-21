@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
@@ -74,7 +75,8 @@ def main() -> None:
             compute_dtype=torch.bfloat16,
         )
         fp8_layerwise = True
-    if hasattr(pipe, "enable_model_cpu_offload"):
+    cpu_offload = os.environ.get("OVERSEAARK_STEP1X_CPU_OFFLOAD", "0") == "1"
+    if cpu_offload and hasattr(pipe, "enable_model_cpu_offload"):
         pipe.enable_model_cpu_offload()
     else:
         pipe.to("cuda")
@@ -97,7 +99,7 @@ def main() -> None:
             "image_path": str(output_path),
             "model": str(model_dir),
             "fp8_layerwise": fp8_layerwise,
-            "cpu_offload": hasattr(pipe, "enable_model_cpu_offload"),
+            "cpu_offload": cpu_offload,
         }
     )
 
