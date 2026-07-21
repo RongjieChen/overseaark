@@ -66,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app_settings.adapter_mode,
         {
             "llm": app_settings.llm_command,
+            "llm_control": app_settings.llm_control_command,
             "image": app_settings.image_command,
             "video": app_settings.video_command,
             "asr": app_settings.asr_command,

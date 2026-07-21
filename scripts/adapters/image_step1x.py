@@ -84,7 +84,7 @@ def main() -> None:
     source = Image.open(payload["source_image"]).convert("RGB")
     generator = torch.Generator(device="cpu").manual_seed(int(payload.get("seed", 0)))
     num_inference_steps = int(
-        payload.get("num_inference_steps", os.environ.get("OVERSEAARK_STEP1X_STEPS", "12"))
+        payload.get("num_inference_steps", os.environ.get("OVERSEAARK_STEP1X_STEPS", "10"))
     )
     thinking = bool(
         payload.get(

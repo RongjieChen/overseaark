@@ -92,7 +92,7 @@ def test_cosmos_adapter_uses_offline_inference_mode_and_json_sample_overrides(
         "aspect_ratio": "16,9",
         "fps": 24,
         "num_frames": 121,
-        "num_steps": 35,
+        "num_steps": 30,
         "guidance": 6.0,
         "shift": 5.0,
         "seed": 0,

@@ -310,6 +310,14 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       fi
       ;;
     logs) shift || true; show_logs "${1:-all}" ;;
+    llm)
+      case "${2:-status}" in
+        start) start_llama ;;
+        stop) stop_llama ;;
+        status) status_llama ;;
+        *) die "llm command must be start, stop, or status" 64 ;;
+      esac
+      ;;
     *) die "unknown lifecycle command: ${1:-}" 64 ;;
   esac
 fi

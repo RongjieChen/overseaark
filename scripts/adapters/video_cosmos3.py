@@ -33,7 +33,7 @@ def main() -> None:
                     "aspect_ratio": "16,9",
                     "fps": 24,
                     "num_frames": 121,
-                    "num_steps": 35,
+                    "num_steps": 30,
                     "guidance": 6.0,
                     "shift": 5.0,
                     "seed": 0,

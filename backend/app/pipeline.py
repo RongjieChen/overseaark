@@ -270,10 +270,6 @@ class CampaignRunner:
         manifest_path = package_dir / "manifest.json"
         qc_report_path = package_dir / "qc_report.json"
         zip_path = package_dir / "export.zip"
-        llm_qc = await self.model_manager.llm(
-            StageName.quality_packaging.value,
-            {"languages": campaign.languages, "artifacts": context["artifacts"]},
-        )
         media = context["artifacts"][StageName.media_production.value]
         audio_checks = await self._qc_audio(campaign.languages, media["audio"])
         video = media["video"]
@@ -288,9 +284,12 @@ class CampaignRunner:
                 "warnings": warnings,
             },
             "passed": all(item["passed"] for item in audio_checks.values()),
-            "llm_qc": llm_qc.get("qc", {}),
-            "llm_qc_model": llm_qc.get("model"),
-            "llm_qc_inference_seconds": llm_qc.get("inference_seconds"),
+            "deterministic_checks": [
+                "requested language copy exists",
+                "poster, narration, subtitle, and video files exist",
+                "ASR round-trip similarity meets threshold",
+                "archive manifest records model provenance",
+            ],
             "offline_inference": True,
         }
         current_campaign = self.store.get_campaign(campaign.id)
@@ -306,7 +305,6 @@ class CampaignRunner:
             "model_calls": _collect_model_calls(
                 {
                     "artifacts": context["artifacts"],
-                    "quality_packaging_llm": llm_qc,
                     "quality_audio_checks": audio_checks,
                 }
             ),

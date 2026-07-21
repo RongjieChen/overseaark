@@ -185,12 +185,19 @@ class CommandModelHooks(ModelHooks):
     def __init__(self, commands: dict[str, str]):
         self.commands = commands
 
+    async def _set_llm_active(self, active: bool) -> None:
+        control = self.commands.get("llm_control")
+        if control:
+            await _run_control_command(control, "start" if active else "stop")
+
     async def llm(self, task: str, payload: dict[str, Any]) -> dict[str, Any]:
+        await self._set_llm_active(True)
         return await _run_command(self.commands["llm"], {"task": task, **payload})
 
     async def image(
         self, prompt: str, source_image: Path, output_path: Path, overlay_text: str = ""
     ) -> dict[str, Any]:
+        await self._set_llm_active(False)
         result = await _run_command(
             self.commands["image"],
             {
@@ -204,6 +211,7 @@ class CommandModelHooks(ModelHooks):
         return result
 
     async def video(self, prompt: str, image_path: Path, output_path: Path) -> dict[str, Any]:
+        await self._set_llm_active(False)
         try:
             result = await _run_command(
                 self.commands["video"],
@@ -217,6 +225,7 @@ class CommandModelHooks(ModelHooks):
         return result
 
     async def asr(self, audio_path: Path, language: str) -> dict[str, Any]:
+        await self._set_llm_active(False)
         result = await _run_command(
             self.commands["asr"],
             {"audio_path": str(audio_path), "language": language},
@@ -234,6 +243,7 @@ class CommandModelHooks(ModelHooks):
         output_path: Path,
         speaker: str | None = None,
     ) -> dict[str, Any]:
+        await self._set_llm_active(False)
         selected_speaker = speaker or DEFAULT_TTS_SPEAKERS.get(language, "Jason")
         result = await _run_command(
             self.commands["tts"],
@@ -250,6 +260,9 @@ class CommandModelHooks(ModelHooks):
         result.setdefault("duration", 0.0)
         result.setdefault("text", text)
         return result
+
+    async def cleanup(self) -> None:
+        await self._set_llm_active(False)
 
 
 class ModelManager:
@@ -311,7 +324,11 @@ def build_model_manager(mode: str, commands: dict[str, str | None]) -> ModelMana
         missing = [name for name in ("llm", "image", "video", "asr", "tts") if not commands.get(name)]
         if missing:
             raise ValueError(f"command adapter mode requires commands for: {', '.join(missing)}")
-        return ModelManager(CommandModelHooks({key: str(value) for key, value in commands.items()}))
+        return ModelManager(
+            CommandModelHooks(
+                {key: str(value) for key, value in commands.items() if value is not None}
+            )
+        )
     if mode != "mock":
         raise ValueError("OVERSEAARK_ADAPTER_MODE must be 'mock' or 'command'")
     return ModelManager(MockModelHooks())
@@ -352,6 +369,35 @@ async def _run_command(command: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise AdapterError("adapter command returned non-object JSON")
     return result
+
+
+async def _run_control_command(command: str, action: str) -> None:
+    base_args = shlex.split(command)
+    if not base_args:
+        raise AdapterError("empty LLM control command")
+    args = [*base_args, action]
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=float(os.environ.get("OVERSEAARK_LLAMA_STARTUP_TIMEOUT", "900")),
+        )
+    except TimeoutError as exc:
+        await _terminate_process_group(proc)
+        raise AdapterError(f"LLM control timed out while requesting {action}") from exc
+    except asyncio.CancelledError:
+        await _terminate_process_group(proc)
+        raise
+    if proc.returncode != 0:
+        detail = stderr.decode("utf-8", errors="replace").strip()
+        if not detail:
+            detail = stdout.decode("utf-8", errors="replace").strip()
+        raise AdapterError(detail or f"LLM control failed while requesting {action}")
 
 
 def _parse_command_stdout(stdout: bytes) -> Any:
