@@ -54,6 +54,37 @@ sync_huggingface() {
   if [[ -n "$includes" ]]; then
     IFS=',' read -r -a files <<< "$includes"
   fi
+
+  # The Step GGUF shard is large enough that an expiring Xet URL can fail near
+  # completion. Keep a normal file beside the destination so curl can resume it
+  # across fresh signed redirects instead of losing an opaque client cache.
+  if [[ "$source" == "stepfun-ai/Step-3.7-Flash-GGUF" ]]; then
+    local endpoint="${HF_ENDPOINT:-https://hf-mirror.com}"
+    local file target partial url
+    for file in "${files[@]}"; do
+      target="$dest/$file"
+      partial="${target}.overseaark-download"
+      if [[ -f "$target" ]]; then
+        log "using existing Hugging Face file $target"
+        continue
+      fi
+      mkdir -p "$(dirname "$target")"
+      url="${endpoint%/}/${source}/resolve/${revision}/${file}?download=true"
+      log "downloading resumable Hugging Face file $file"
+      curl --fail --location --continue-at - \
+        --retry 100 --retry-all-errors --retry-delay 5 \
+        --connect-timeout 20 --speed-time 120 --speed-limit 1024 \
+        --output "$partial" "$url"
+      mv "$partial" "$target"
+    done
+    return 0
+  fi
+
+  # Step1X needs its scheduler, tokenizer, and pipeline configuration in
+  # addition to the weight files pinned by the verification manifest.
+  if [[ "$source" == "stepfun-ai/Step1X-Edit-v1p2" ]]; then
+    files=()
+  fi
   if have hf; then
     HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}" hf download "$source" "${files[@]}" --revision "$revision" --local-dir "$dest"
   elif have huggingface-cli; then
@@ -91,10 +122,7 @@ sync_models() {
       continue
     fi
     local dest="$OVERSEAARK_MODELS_DIR/$local_dir"
-    if adopt_existing "$adopt_from" "$dest"; then
-      continue
-    fi
-    mkdir -p "$dest"
+    adopt_existing "$adopt_from" "$dest" || mkdir -p "$dest"
     log "syncing $id from $provider:$source@$revision"
     case "$provider" in
       modelscope) sync_modelscope "$source" "$revision" "$dest" "$includes" ;;
