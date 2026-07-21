@@ -126,3 +126,11 @@ def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
     byt5 = next(model for model in manifest["models"] if model["id"] == "byt5-small-tokenizer")
     assert byt5["revision"] == "68377bdc18a2ffec8a0533fef03b1c513a4dd49d"
     assert all(not item["path"].endswith((".bin", ".safetensors")) for item in byt5["files"])
+
+
+def test_step1x_reserves_typography_for_deterministic_pillow_layout() -> None:
+    adapter = _read("scripts/adapters/image_step1x.py")
+
+    assert "Do not render text, letters, logos, captions, or watermarks" in adapter
+    assert "typography is added after generation" in adapter
+    assert "prompt=generation_prompt" in adapter

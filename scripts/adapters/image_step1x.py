@@ -98,8 +98,12 @@ def main() -> None:
             os.environ.get("OVERSEAARK_STEP1X_REFLECTION", "0") == "1",
         )
     )
+    generation_prompt = (
+        f"{str(payload['prompt']).rstrip()} Preserve the product geometry and use a clean studio background. "
+        "Do not render text, letters, logos, captions, or watermarks; typography is added after generation."
+    )
     pipe_output = pipe(
-        prompt=payload["prompt"],
+        prompt=generation_prompt,
         image=source,
         num_inference_steps=num_inference_steps,
         true_cfg_scale=float(payload.get("true_cfg_scale", 6.0)),
