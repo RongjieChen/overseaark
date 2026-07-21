@@ -40,14 +40,13 @@ def main() -> None:
         )
         cmd = [
             sys.executable,
-            "-m",
-            "cosmos_framework.scripts.inference",
+            str(Path(__file__).with_name("cosmos_local_inference.py")),
             "-i",
             str(input_json),
             "-o",
             str(output_dir),
             "--checkpoint-path",
-            str(checkpoint),
+            "Cosmos3-Edge",
             "--parallelism-preset=latency",
             "--sampler=unipc",
             "--no-guardrails",
@@ -58,6 +57,7 @@ def main() -> None:
                 "COSMOS_TRAINING": "0",
                 "HF_HUB_OFFLINE": "1",
                 "TRANSFORMERS_OFFLINE": "1",
+                "OVERSEAARK_COSMOS_LOCAL_CHECKPOINT": str(checkpoint),
             }
         )
         subprocess.run(cmd, check=True, env=env)
