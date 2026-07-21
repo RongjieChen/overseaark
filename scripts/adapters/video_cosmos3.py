@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,14 @@ def main() -> None:
                     "model_mode": "image2video",
                     "prompt": payload["prompt"],
                     "vision_path": str(payload["image_path"]),
+                    "resolution": 480,
+                    "aspect_ratio": "16,9",
+                    "fps": 24,
+                    "num_frames": 121,
+                    "num_steps": 35,
+                    "guidance": 6.0,
+                    "shift": 5.0,
+                    "seed": 0,
                 }
             ),
             encoding="utf-8",
@@ -40,16 +49,18 @@ def main() -> None:
             "--checkpoint-path",
             str(checkpoint),
             "--parallelism-preset=latency",
-            "--resolution=480",
-            "--num-frames=121",
-            "--fps=24",
-            "--num-steps=50",
-            "--guidance=5.0",
-            "--shift=3.0",
             "--sampler=unipc",
-            "--seed=0",
+            "--no-guardrails",
         ]
-        subprocess.run(cmd, check=True)
+        env = os.environ.copy()
+        env.update(
+            {
+                "COSMOS_TRAINING": "0",
+                "HF_HUB_OFFLINE": "1",
+                "TRANSFORMERS_OFFLINE": "1",
+            }
+        )
+        subprocess.run(cmd, check=True, env=env)
         produced_files = sorted(output_dir.rglob("*.mp4"))
         if not produced_files:
             raise SystemExit(f"Cosmos3 produced no MP4 under {output_dir}")
