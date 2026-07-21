@@ -145,7 +145,7 @@ create_adapter_envs() {
     cd "$REPO_DIR/vendor/cosmos-framework"
     UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}" \
       UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-10}" \
-      "$REPO_DIR/.venv-cosmos/bin/uv" sync --all-extras --group=cu130-train
+      "$REPO_DIR/.venv-cosmos/bin/uv" sync --group=cu130
   )
 
   if [[ ! -d "$REPO_DIR/.venv-nemo" ]]; then
