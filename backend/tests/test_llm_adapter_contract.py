@@ -79,6 +79,7 @@ def test_asr_adapter_uses_generic_local_nemo_restore_and_language_tags() -> None
     assert "RNNTPromptTranscribeConfig" in adapter
     assert "use_lhotse=False" in adapter
     assert "override_config=transcribe_config" in adapter
+    assert 're.fullmatch(r"<[a-z]{2}(?:-[A-Z]{2})?>", segment_text)' in adapter
     assert "tagged_language" in adapter
     assert "from_pretrained" not in adapter
 
@@ -107,6 +108,9 @@ def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
     assert 'config.codecmodel_path = str(codec_path)' in adapter
     assert 'models_root() / "google/byt5-small"' in adapter
     assert 'tokenizer_config.pretrained_model = str(tokenizer_path)' in adapter
+    assert 'tokenizers.get("japanese_phoneme")' in adapter
+    assert 'if language == "ja"' in adapter
+    assert 'payload.get("apply_TN", False)' in adapter
     assert "override_config_path=config" in adapter
     assert "codec_config.discriminator = None" in adapter
     assert 'codec_config.use_scl_loss = False' in adapter

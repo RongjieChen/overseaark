@@ -47,6 +47,24 @@ def _to_mono(audio: object, length: object) -> "object":
     return values[:size]
 
 
+def _enable_japanese_inference(model: object) -> None:
+    """Bridge NeMo 2.7's do_tts helper to the Japanese tokenizer in v2602."""
+    tokenizers = model.tokenizer.tokenizers
+    japanese = tokenizers.get("japanese_phoneme")
+    if japanese is None:
+        raise SystemExit("Magpie checkpoint does not contain its Japanese tokenizer")
+    model.tokenizer.tokenizers = {
+        "japanese_phoneme": japanese,
+        **{name: tokenizer for name, tokenizer in tokenizers.items() if name != "japanese_phoneme"},
+    }
+    original_longform_check = model._needs_longform_inference
+    model._needs_longform_inference = (
+        lambda text, language: False
+        if language == "ja"
+        else original_longform_check(text, language)
+    )
+
+
 def main() -> None:
     payload = read_payload()
     model_path = require_path(
@@ -105,6 +123,8 @@ def main() -> None:
     import numpy as np
 
     language = str(payload.get("language", "en"))
+    if language == "ja":
+        _enable_japanese_inference(model)
     sample_rate = int(getattr(model, "sample_rate", 22050))
     pending = _split_text(payload["text"], language)
     generated = []
@@ -113,7 +133,7 @@ def main() -> None:
         audio, audio_len = model.do_tts(
             chunk,
             language=language,
-            apply_TN=payload.get("apply_TN", True),
+            apply_TN=payload.get("apply_TN", False),
             speaker_index=SPEAKERS.get(speaker, 1),
         )
         values = _to_mono(audio, audio_len)

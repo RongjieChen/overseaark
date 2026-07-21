@@ -28,11 +28,14 @@ def _segments(result: object, text: str) -> list[dict[str, object]]:
     for item in words:
         if not isinstance(item, dict):
             continue
+        segment_text = str(item.get("word") or item.get("segment") or item.get("text") or "")
+        if re.fullmatch(r"<[a-z]{2}(?:-[A-Z]{2})?>", segment_text):
+            continue
         segments.append(
             {
                 "start": float(item.get("start", 0.0)),
                 "end": float(item.get("end", 0.0)),
-                "text": str(item.get("word") or item.get("segment") or item.get("text") or ""),
+                "text": segment_text,
             }
         )
     return segments or [{"start": 0.0, "end": 0.0, "text": text}]
