@@ -87,7 +87,8 @@ runtime_dependencies_ready() {
     'import torch, PIL; from diffusers import Step1XEditPipelineV1P2' || return 1
   python_command_imports "$OVERSEAARK_VIDEO_COMMAND" 'import cosmos_framework' || return 1
   python_command_imports "$OVERSEAARK_ASR_COMMAND" 'import nemo.collections.asr, soundfile' || return 1
-  python_command_imports "$OVERSEAARK_TTS_COMMAND" 'import nemo.collections.tts, soundfile' || return 1
+  python_command_imports "$OVERSEAARK_TTS_COMMAND" \
+    'import pathlib, pyopenjtalk, nemo.collections.tts, soundfile; assert pathlib.Path(pyopenjtalk.OPEN_JTALK_DICT_DIR.decode()).is_dir()' || return 1
 }
 
 ensure_runtime_dependencies() {

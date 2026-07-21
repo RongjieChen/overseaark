@@ -90,6 +90,14 @@ def main() -> None:
     except Exception as exc:
         raise SystemExit("TTS adapter requires NVIDIA NeMo and soundfile installed in the TTS environment") from exc
 
+    if str(payload.get("language", "en")) == "ja":
+        import pyopenjtalk
+
+        require_path(
+            Path(pyopenjtalk.OPEN_JTALK_DICT_DIR.decode()),
+            "Open JTalk dictionary (run ./overseaark bootstrap while online)",
+        )
+
     config = MagpieTTSModel.restore_from(str(model_path), return_config=True)
     config.codecmodel_path = str(codec_path)
     for tokenizer_config in config.text_tokenizers.values():

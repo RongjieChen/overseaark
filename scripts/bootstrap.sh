@@ -143,6 +143,26 @@ path.write_text("".join(rewritten), encoding="utf-8")
 PY
 }
 
+prepare_open_jtalk_dictionary() {
+  local python="$REPO_DIR/.venv-tts/bin/python"
+  local package_dir target_dir tmp archive url
+  package_dir="$("$python" -c 'import pathlib, pyopenjtalk; print(pathlib.Path(pyopenjtalk.__file__).parent)')"
+  target_dir="$package_dir/open_jtalk_dic_utf_8-1.11"
+  [[ -f "$target_dir/sys.dic" ]] && return 0
+
+  tmp="$(mktemp -d /tmp/overseaark-open-jtalk.XXXXXX)"
+  archive="$tmp/open_jtalk_dic_utf_8-1.11.tar.gz"
+  url="${OVERSEAARK_GITHUB_ASSET_PREFIX}https://github.com/r9y9/open_jtalk/releases/download/v1.11.1/open_jtalk_dic_utf_8-1.11.tar.gz"
+  curl -fL --retry 5 --retry-delay 2 -o "$archive" "$url"
+  printf '%s  %s\n' \
+    "fe6ba0e43542cef98339abdffd903e062008ea170b04e7e2a35da805902f382a" \
+    "$archive" | sha256sum -c -
+  tar -xzf "$archive" --no-same-owner -C "$package_dir"
+  rm -f "$archive"
+  rmdir "$tmp"
+  [[ -f "$target_dir/sys.dic" ]] || die "Open JTalk dictionary extraction failed"
+}
+
 install_frontend() {
   if [[ -f "$REPO_DIR/frontend/package.json" ]]; then
     if [[ -f "$REPO_DIR/frontend/package-lock.json" ]]; then
@@ -240,6 +260,7 @@ create_adapter_envs() {
   "$REPO_DIR/.venv-tts/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchaudio
   "$REPO_DIR/.venv-tts/bin/pip" install --no-build-isolation \
     "nemo_toolkit[tts]==2.7.3" kaldialign soundfile
+  prepare_open_jtalk_dictionary
 }
 
 ensure_dirs

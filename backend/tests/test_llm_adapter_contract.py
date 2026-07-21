@@ -111,6 +111,11 @@ def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
     assert 'tokenizers.get("japanese_phoneme")' in adapter
     assert 'if language == "ja"' in adapter
     assert 'payload.get("apply_TN", False)' in adapter
+    assert "pyopenjtalk.OPEN_JTALK_DICT_DIR.decode()" in adapter
+    assert "prepare_open_jtalk_dictionary" in _read("scripts/bootstrap.sh")
+    assert "fe6ba0e43542cef98339abdffd903e062008ea170b04e7e2a35da805902f382a" in _read(
+        "scripts/bootstrap.sh"
+    )
     assert "override_config_path=config" in adapter
     assert "codec_config.discriminator = None" in adapter
     assert 'codec_config.use_scl_loss = False' in adapter
