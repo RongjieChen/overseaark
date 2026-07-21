@@ -122,7 +122,9 @@ create_adapter_envs() {
     mkdir -p "$REPO_DIR/vendor"
     git clone --branch step1xedit_v1p2 --depth 1 https://github.com/Peyton-Chen/diffusers.git "$REPO_DIR/vendor/diffusers-step1xedit_v1p2"
   fi
-  git -C "$REPO_DIR/vendor/diffusers-step1xedit_v1p2" fetch --depth 1 origin "$step1x_diffusers_revision"
+  if ! git -C "$REPO_DIR/vendor/diffusers-step1xedit_v1p2" cat-file -e "${step1x_diffusers_revision}^{commit}"; then
+    git -C "$REPO_DIR/vendor/diffusers-step1xedit_v1p2" fetch --depth 1 origin "$step1x_diffusers_revision"
+  fi
   git -C "$REPO_DIR/vendor/diffusers-step1xedit_v1p2" checkout --detach "$step1x_diffusers_revision"
   "$REPO_DIR/.venv-step1x/bin/pip" install -e "$REPO_DIR/vendor/diffusers-step1xedit_v1p2"
 
@@ -135,7 +137,9 @@ create_adapter_envs() {
     mkdir -p "$REPO_DIR/vendor"
     git clone https://github.com/NVIDIA/cosmos-framework.git "$REPO_DIR/vendor/cosmos-framework"
   fi
-  git -C "$REPO_DIR/vendor/cosmos-framework" fetch --depth 1 origin "$cosmos_framework_revision"
+  if ! git -C "$REPO_DIR/vendor/cosmos-framework" cat-file -e "${cosmos_framework_revision}^{commit}"; then
+    git -C "$REPO_DIR/vendor/cosmos-framework" fetch --depth 1 origin "$cosmos_framework_revision"
+  fi
   git -C "$REPO_DIR/vendor/cosmos-framework" checkout --detach "$cosmos_framework_revision"
   (cd "$REPO_DIR/vendor/cosmos-framework" && "$REPO_DIR/.venv-cosmos/bin/uv" sync --all-extras --group=cu130-train)
 
