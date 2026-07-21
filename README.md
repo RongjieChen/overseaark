@@ -1,69 +1,37 @@
 # OverseaArk
 
-OverseaArk is a local-first multimodal campaign workbench for cross-border marketing demos on NVIDIA DGX Spark. It runs as a monorepo with a FastAPI backend, a Vite TypeScript frontend, local model manifests, and root-level operational scripts.
+OverseaArk is a local-first multimodal campaign workbench for cross-border sellers on NVIDIA DGX Spark. The repository is a single monorepo: FastAPI backend, Vite TypeScript frontend, local model adapters, lifecycle scripts, tests, and the pinned model manifest all live here. There is no Docker path and no cloud inference path.
 
-Current implementation status is mixed and documented deliberately:
+The implemented demo flow accepts one product image and product description, runs six serialized stages, and exports a zip package containing campaign copy, poster, narration audio, composed video, QC report, and model provenance.
 
-- Implemented: FastAPI campaign API, multipart product-image uploads, SQLite campaign/stage/event storage, six product campaign stages, SSE progress, rerun-from-stage, cancel, zip export, mock model hooks, command model hook boundary, adapter scripts, frontend workbench shell, degraded local frontend fallback, and self-healing root lifecycle scripts.
-- Implemented as local adapter scripts. DGX validation has confirmed one-command dependency repair, the complete pinned model manifest, CUDA runtime imports for Step1X/Cosmos/NeMo, offline llama.cpp process isolation, timeout cleanup, and mock E2E; full schema-valid Step-3.7, Step1X, Cosmos3, Nemotron, and Magpie quality runs remain acceptance work.
-- Not implemented in code: ComfyUI, OpenClaw, or cloud inference APIs.
-- Current production scripts serve the FastAPI API and built frontend from `127.0.0.1:8000` when `runtime/frontend-dist` exists. Do not use a `5173` tunnel for production.
+## Current Status
+
+- Implemented: root one-command lifecycle, FastAPI API, built frontend mounted by FastAPI, SQLite campaign/event store, multipart uploads, six campaign stages, SSE progress, rerun, cancel, export, mock mode, command adapter mode, model verification/sync, pinned CUDA `llama.cpp`, and process-group cleanup for timed-out adapters.
+- Implemented command adapters: Qwen3.6 LLM/VLM through localhost `llama-server`, Step1X image generation, Cosmos3-Edge video generation, Nemotron ASR, and Magpie TTS.
+- Implemented safety boundary: localhost-only serving, no remote model command URLs, offline Hugging Face runtime flags, ModelManager serialization, and one heavy GPU adapter active at a time.
+- Not implemented: Docker, ComfyUI, OpenClaw, Ollama, StepFun cloud APIs, NVIDIA hosted inference APIs, or public service binding.
+- DGX E2E evidence: three campaigns reached `completed`. Run 1 recovered through a stage rerun; run 2 completed uninterrupted in 10m34s and exercised the Japanese ASR threshold retry; run 3 completed uninterrupted in 10m45s with real Step1X, Cosmos3-Edge, Magpie TTS, and Nemotron ASR outputs. Run 3 audio similarity was zh `0.833`, en `1.0`, ja `1.0`; its 854x480 H.264/AAC video and export zip passed structural verification. The current <=10 minute target therefore remains a measured performance gap, not a claimed pass.
 
 ## Repository Layout
 
 ```text
-backend/                  FastAPI service and tests
+backend/                  FastAPI service, Pydantic models, SQLite store, tests
 frontend/                 Vite TypeScript workbench
-runtime/frontend-dist/    ignored frontend build output mounted by FastAPI
-scripts/                  Root operations and command adapter scripts
-tests/e2e/                stdlib E2E contract tests and mock server
-model-manifest.lock.json  Pinned model manifest
+runtime/frontend-dist/    Ignored production frontend build served by FastAPI
+scripts/                  Lifecycle scripts and model adapter scripts
+tests/e2e/                Mock HTTP E2E contract and one-click lifecycle tests
+model-manifest.lock.json  Pinned model sources, revisions, file sizes, hashes
 docs/                     Architecture, deployment, competition, model docs
 ```
 
-External runtime paths from `.env.example` are `/home/Developer/overseaark-models` for model weights and `/home/Developer/overseaark-data` for SQLite, uploads, artifacts, logs, and pid files. Generated directories such as `backend/.venv/`, `frontend/node_modules/`, `frontend/dist-tests/`, `runtime/frontend-dist/`, and `*-data/` are not source.
+Runtime data is outside source by default:
 
-## Six Campaign Stages
-
-The implemented backend pipeline runs:
-
-1. `market_positioning`
-2. `buyer_persona`
-3. `multilingual_copy`
-4. `visual_design`
-5. `media_production`
-6. `quality_packaging`
-
-Each stage has one retry. After a final failure, later stages are skipped and the campaign becomes `partial` if previous artifacts exist.
-
-## Model Stack
-
-| Role | Model / script | Revision | Pinned bytes | License | Status |
-| --- | --- | --- | ---: | --- | --- |
-| LLM/VLM | `stepfun-ai/Step-3.7-Flash-GGUF` via `scripts/adapters/llm_step.py` and `llama-cli` | `0b69336d2fd2adfdef9c66e425f7778196c31482` | 97.77 GB | Apache-2.0 | Required; launcher reuses `/root/llama.cpp` when present or builds the pinned repo-local CUDA binary. |
-| Image | `stepfun-ai/Step1X-Edit-v1p2` via `scripts/adapters/image_step1x.py` | `ca85b97fd19f2235dc0d6fd3633d1319f169e149` | 41.80 GB | Apache-2.0 | Required core image model; script requires pinned Step1X diffusers fork. |
-| Optional T2I | `nv-community/Cosmos-Predict2-0.6B-Text2Image` mirror of NVIDIA upstream | ModelScope `master`, upstream `dd55b6858b22ad569976bff207880b8fea839da7` | 4.32 GB | NVIDIA Open Model License | Optional inspiration images only; it is not the video fallback. |
-| Video | `nv-community/Cosmos3-Edge` mirror of `nvidia/Cosmos3-Edge` via `scripts/adapters/video_cosmos3.py` | ModelScope `master`, upstream `6f58f6b4c91288838e60b6bcb2cc45d997e961de` | 9.13 GB | NVIDIA Open Model Development Weight License 1.1 | Required; script requires pinned Cosmos framework checkout. |
-| ASR | `nvidia/nemotron-3.5-asr-streaming-0.6b` via `scripts/adapters/asr_nemo.py` | `f3d333391852ba876df169dcc9ba902d25b6ab0b` | 2.37 GB | NVIDIA Open Model Development Weight License 1.1 | Required manifest entry; script requires NeMo ASR deps. |
-| TTS | `nvidia/magpie_tts_multilingual_357m` via `scripts/adapters/tts_magpie.py` | `34d7e40da85cabc97f92198889b65cea27bc7fd1` | 1.21 GB | NVIDIA Open Model License | Required manifest entry; script requires NeMo TTS deps. |
-
-Pinned framework commits:
-
-| Framework | Commit |
-| --- | --- |
-| Peyton-Chen/diffusers `step1xedit_v1p2` | `f5f1c98fa00cb4d0479af1b1b1c17d724345963a` |
-| NVIDIA/cosmos-framework | `ed8287fd7477113f8ac4f6b84290514d55cf0cdc` |
-| NVIDIA-NeMo/NeMo | `93b15b1f423ddc8e0d189810fdd8304091d9b1bd` |
-
-See [docs/MODEL_LICENSES.md](docs/MODEL_LICENSES.md).
+```text
+/home/Developer/overseaark-models  model weights
+/home/Developer/overseaark-data    SQLite, uploads, artifacts, logs, pid files
+```
 
 ## One-command Start
-
-Mock/developer mode:
-
-```bash
-OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark start
-```
 
 DGX Spark command mode:
 
@@ -71,17 +39,104 @@ DGX Spark command mode:
 ./overseaark start
 ```
 
-On the first run, `start` installs missing application and pinned inference dependencies, builds the frontend, builds pinned CUDA `llama.cpp` when needed, verifies every required model, downloads only missing or invalid locked files, starts FastAPI, and waits for `/api/v1/health`. Downloads are resumable; rerun the same command after a connection interruption. The required model set is about 152 GB, so the first run can take substantial time.
+Developer/mock mode without GPU model assets:
 
-`bootstrap` and `models sync` remain available as explicit maintenance commands. Set `OVERSEAARK_AUTO_BOOTSTRAP=0` or `OVERSEAARK_AUTO_DOWNLOAD_MODELS=0` for fail-fast startup. A same-size file with the wrong SHA256 is removed precisely and fetched again; valid locked files are retained. `.env.example` defaults to command mode, localhost-only serving, an Aliyun PyPI mirror, and separate Git/large-asset GitHub prefixes suitable for the target network. Framework commits and uv wheel/model hashes remain pinned; set the mirror variables to operator-approved alternatives when required.
+```bash
+OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark start
+```
 
-Use:
+`start` is idempotent. It bootstraps missing dependencies, builds the frontend, builds pinned CUDA `llama.cpp` when needed, verifies locked model files, downloads only missing or invalid files, launches local `llama-server` on demand, starts FastAPI, and waits for `/api/v1/health`.
+
+Use these endpoints after startup:
 
 - App: `http://127.0.0.1:8000`
-- Backend API: `http://127.0.0.1:8000/api/v1/health`
-- Backend OpenAPI: `http://127.0.0.1:8000/docs`
+- Health: `http://127.0.0.1:8000/api/v1/health`
+- OpenAPI: `http://127.0.0.1:8000/docs`
 
-The frontend defaults to `/api/v1`, matching the backend routes.
+Useful lifecycle commands:
+
+```bash
+./overseaark status
+./overseaark logs all
+./overseaark logs llm
+./overseaark llm status
+./overseaark stop
+```
+
+## Configuration
+
+Copy `.env.example` only when the defaults need changing:
+
+```bash
+cp .env.example .env
+```
+
+Important defaults:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OVERSEAARK_HOST` | `127.0.0.1` | Localhost-only bind. |
+| `OVERSEAARK_BACKEND_PORT` | `8000` | FastAPI API and frontend. |
+| `OVERSEAARK_MODELS_DIR` | `/home/Developer/overseaark-models` | External model cache. |
+| `OVERSEAARK_DATA_DIR` | `/home/Developer/overseaark-data` | SQLite, uploads, artifacts, logs. |
+| `OVERSEAARK_ADAPTER_MODE` | `command` | Real local adapters on DGX. |
+| `OVERSEAARK_AUTO_BOOTSTRAP` | `1` | Repair missing dependencies during `start`. |
+| `OVERSEAARK_AUTO_DOWNLOAD_MODELS` | `1` | Repair missing/corrupt locked models during `start`. |
+| `OVERSEAARK_STEP1X_STEPS` | `6` | DGX-measured demo default; increase for final-production image refinement. |
+| `OVERSEAARK_COSMOS_STEPS` | `28` | Default Cosmos3-Edge inference steps. |
+
+Mainland-network defaults use TUNA and mirrors while keeping locked hashes authoritative:
+
+```bash
+MODELSCOPE_ENDPOINT=https://modelscope.cn
+HF_ENDPOINT=https://hf-mirror.com
+OVERSEAARK_PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+OVERSEAARK_PYPI_FILE_PREFIX=https://pypi.tuna.tsinghua.edu.cn/packages/
+OVERSEAARK_PYTORCH_INDEX=https://mirrors.aliyun.com/pytorch-wheels/cu129
+OVERSEAARK_GITHUB_GIT_PREFIX=https://gh-proxy.com/https://github.com/
+OVERSEAARK_GITHUB_ASSET_PREFIX=https://ghfast.top/
+```
+
+Set an empty mirror prefix to use upstream URLs directly.
+
+## Model Stack
+
+`model-manifest.lock.json` is the source of truth. Required locked files total 79,075,769,933 bytes. With optional Cosmos-Predict2 synced, the manifest totals 83,399,999,524 bytes.
+
+| Role | Manifest id | Source | Revision | Local directory | Required | License |
+| --- | --- | --- | --- | --- | --- | --- |
+| LLM/VLM | `qwen3.6-35b-a3b-gguf-q4_k_m` | `ggml-org/Qwen3.6-35B-A3B-GGUF` from ModelScope | `37b9ed4ed8b3942a5ac69bffb490a5d25acdad4e` | `qwen/qwen3.6-35b-a3b-gguf` | yes | Apache-2.0 |
+| Image | `step1x-edit-v1p2` | `stepfun-ai/Step1X-Edit-v1p2` from Hugging Face mirror | `ca85b97fd19f2235dc0d6fd3633d1319f169e149` | `stepfun/step1x-edit-v1p2` | yes | Apache-2.0 |
+| Optional T2I | `cosmos-predict2-0.6b-text2image` | `nv-community/Cosmos-Predict2-0.6B-Text2Image` ModelScope mirror of NVIDIA upstream | `master`, upstream `dd55b6858b22ad569976bff207880b8fea839da7` | `nvidia/cosmos-predict2-0.6b-text2image` | no | NVIDIA Open Model License |
+| Video | `cosmos3-edge` | `nv-community/Cosmos3-Edge` ModelScope mirror of NVIDIA upstream | `master`, upstream `6f58f6b4c91288838e60b6bcb2cc45d997e961de` | `nvidia/cosmos3-edge` | yes | NVIDIA Open Model Development Weight License 1.1 |
+| Video VAE | `wan2.2-vae-cosmos3` | `Wan-AI/Wan2.2-TI2V-5B` from ModelScope | `master`, upstream `921dbaf3f1674a56f47e83fb80a34bac8a8f203e` | `wan/wan2.2-vae` | yes | Apache-2.0 |
+| ASR | `nemotron-asr-streaming-0.6b` | `nvidia/nemotron-3.5-asr-streaming-0.6b` | `f3d333391852ba876df169dcc9ba902d25b6ab0b` | `nvidia/nemotron-3.5-asr-streaming-0.6b` | yes | NVIDIA Open Model Development Weight License 1.1 |
+| TTS codec | `nemo-nano-codec-22khz-1.89kbps-21.5fps` | `nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps` | `3c482a402a3c4cf33690a2c0f0a7d41afea6bd6a` | `nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps` | yes | NVIDIA Open Model License |
+| TTS | `magpie-tts-multilingual-357m` | `nvidia/magpie_tts_multilingual_357m` | `34d7e40da85cabc97f92198889b65cea27bc7fd1` | `nvidia/magpie_tts_multilingual_357m` | yes | NVIDIA Open Model License |
+| TTS tokenizer | `byt5-small-tokenizer` | `google/byt5-small` | `68377bdc18a2ffec8a0533fef03b1c513a4dd49d` | `google/byt5-small` | yes | Apache-2.0 |
+
+Pinned framework commits:
+
+| Component | Commit |
+| --- | --- |
+| `ggml-org/llama.cpp` CUDA `llama-server` | `76f46ad29d61fd8c1401e8221842934bf62a6064` |
+| Peyton-Chen/diffusers `step1xedit_v1p2` | `f5f1c98fa00cb4d0479af1b1b1c17d724345963a` |
+| NVIDIA/cosmos-framework | `ed8287fd7477113f8ac4f6b84290514d55cf0cdc` |
+| NVIDIA-NeMo/NeMo for ASR | `93b15b1f423ddc8e0d189810fdd8304091d9b1bd` |
+| NeMo TTS environment | `nemo_toolkit[tts]==2.7.3` |
+
+## Pipeline
+
+The backend runs one retry per stage:
+
+1. `market_positioning`: Qwen3.6 produces positioning and market hypotheses.
+2. `buyer_persona`: Qwen3.6 produces personas and decision triggers.
+3. `multilingual_copy`: Qwen3.6 produces `zh`, `en`, and `ja` copy.
+4. `visual_design`: Step1X generates `visual_design.png`; typography overlay is added after generation.
+5. `media_production`: Magpie TTS generates `voice_<language>.wav`; Cosmos3-Edge generates 480p video from the poster; ffmpeg composes narration and subtitles.
+6. `quality_packaging`: Nemotron ASR checks TTS round-trip similarity against threshold `0.75`; one TTS retry is attempted for a failing language; zip export is written.
+
+`ModelManager` serializes all heavy calls. In command mode the LLM server is stopped before image, video, ASR, or TTS work so the GPU memory path stays single-active.
 
 ## API Examples
 
@@ -97,12 +152,12 @@ Models:
 curl -sS http://127.0.0.1:8000/api/v1/models
 ```
 
-Transcribe uploaded audio:
+Transcribe audio:
 
 ```bash
 curl -sS http://127.0.0.1:8000/api/v1/transcriptions \
   -F 'audio=@demo.wav;type=audio/wav' \
-  -F 'language=en'
+  -F 'language=auto'
 ```
 
 Create a campaign:
@@ -117,21 +172,36 @@ curl -sS http://127.0.0.1:8000/api/v1/campaigns \
   -F 'languages=zh,en,ja'
 ```
 
-Stream progress after replacing `<campaign_id>`:
+Stream progress:
 
 ```bash
 curl -N http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/events
 ```
 
-Rerun from one stage:
+Rerun from a stage:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/rerun/media_production
 ```
 
-## DGX SSH Tunnel
+Cancel and export:
 
-Keep services bound to localhost on DGX:
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/cancel
+curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/export
+```
+
+## Offline and Safety Boundary
+
+- Runtime services bind to `127.0.0.1`.
+- Production frontend assets are served by FastAPI on port `8000`; no `5173` tunnel is needed.
+- `validate_offline_runtime` rejects non-local LLM base URLs and adapter commands containing remote URLs.
+- Runtime inference sets `TRANSFORMERS_OFFLINE=1`, `HF_HUB_OFFLINE=1`, and `HF_DATASETS_OFFLINE=1`.
+- Model acquisition is the only lifecycle step that temporarily disables offline Hugging Face flags.
+- Model file verification rejects unsafe paths, size mismatches, SHA-256 mismatches, and cleanup outside the locked model root.
+- Model weights are not committed to this repository.
+
+SSH tunnel from a local machine:
 
 ```bash
 ssh -p 6105 \
@@ -139,30 +209,62 @@ ssh -p 6105 \
   root@106.13.186.155
 ```
 
-No production `3000` or `5173` tunnel is needed. Port `5173` is only Vite dev-server mode.
-
 ## Verification
 
-Commands to run:
+Local-safe verification:
 
 ```bash
-OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark doctor
-OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark models verify
-OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark test
+OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark doctor
+OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark models verify
+OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark test
 ```
 
-Current test coverage in the tree: backend tests pass 19 cases, frontend tests pass 7 cases, and the implemented E2E mock contract passes 14 cases. A shell-level adversarial lifecycle suite additionally injects missing models, same-size hash corruption, missing dependencies, disabled repair, malformed startup settings, portable-lock contention, and repeated-start preflights. These tests validate orchestration, cancellation races, nested process-group cleanup, adapter schemas, API contracts, frontend normalization/build, mock-mode packaging, and one-command recovery; they do not prove DGX end-to-end model inference quality.
+Command-mode model verification:
 
-The latest DGX Step-3.7 schema benchmark reached its 900-second safety limit and was correctly terminated without a residual `llama-cli` process or CUDA allocation. Therefore the PRD's cached full-flow target of 10 minutes is not yet claimed; treat it as an optimization acceptance gate, not a measured result.
+```bash
+./overseaark models verify
+```
 
-In DGX command mode, `./overseaark benchmark llm|image|audio|video` invokes the pinned local adapters directly and writes JSON evidence under `/home/Developer/overseaark-data/benchmarks/`. The audio benchmark runs three cycles, two official Magpie voices per language, and both specified-language and automatic Nemotron transcription checks at the `0.75` similarity threshold.
+Direct adapter benchmarks with verified models:
+
+```bash
+./overseaark benchmark llm
+./overseaark benchmark image
+./overseaark benchmark audio
+./overseaark benchmark video
+```
+
+`benchmark audio` runs three cycles across `zh`, `en`, and `ja`, uses two Magpie voices per language, checks both specified-language and automatic Nemotron ASR, and fails below similarity `0.75`.
+
+## Competition Highlights
+
+- Single monorepo with reproducible local operations.
+- No Docker; the target path is native aarch64 Ubuntu 24.04 on DGX Spark.
+- Pinned Qwen3.6 Q4_K_M plus BF16 mmproj served by CUDA `llama.cpp`.
+- Step1X defaults to 6 steps after a 176.3-second DGX image benchmark retained a usable product poster while saving about 45 seconds versus run 3.
+- Cosmos3-Edge default is 28 steps and uses the pinned Wan2.2 VAE dependency.
+- Nemotron ASR and Magpie TTS close the audio loop with measurable round-trip QC.
+- Heavy model calls are serialized and the LLM server is released before other GPU adapters.
+- Missing models and corrupt same-size locked files are repaired automatically by rerunning `./overseaark start`.
+- Export manifests record model ids, revisions, local directories, licenses, stage attempts, and model calls.
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `runtime dependencies are incomplete` | Bootstrap did not finish or a pinned venv is missing imports. | Rerun `./overseaark start`; caches are reused. Inspect `./overseaark logs all` if it repeats. |
+| `Qwen3.6 GGUF is missing` | Required model file is absent from `OVERSEAARK_MODELS_DIR`. | Run `./overseaark start` or `./overseaark models sync`. |
+| `model manifest verification` fails | Missing, truncated, or SHA-mismatched locked file. | Rerun `./overseaark start`; invalid locked files are removed and fetched again. |
+| `pinned CUDA llama.cpp is missing` | `vendor/llama.cpp` is absent, wrong revision, or not built. | Rerun `./overseaark bootstrap` on DGX Spark with CUDA build tools. |
+| Adapter timeout | A heavy model exceeded `OVERSEAARK_ADAPTER_TIMEOUT`. | Check `OVERSEAARK_ADAPTER_TIMEOUT`, model logs, and GPU memory pressure; the process group is terminated on timeout. |
+| Frontend shows degraded local preview | Backend is unavailable from the browser. | Check `./overseaark status` and `http://127.0.0.1:8000/api/v1/health`. |
+| Upload rejected with 415 | Unsupported content type or image bytes do not match the declared type. | Use real PNG/JPEG/WebP files for products and WAV/MP3/M4A/WebM for audio. |
+| Export returns 409 | Campaign has not reached packaging and no partial export is available. | Wait for a terminal campaign status or inspect stage errors. |
 
 ## More Docs
 
-- [PRD v1.1 (Markdown)](docs/PRD-v1.1.md)
-- [PRD v1.1 (Word)](docs/出海方舟OverseaArk-PRD-v1.1.docx)
-- [PRD v1.0 archive (Word)](docs/出海方舟OverseaArk-PRD-v1.0.docx)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Competition Notes](docs/COMPETITION.md)
 - [Model Licenses](docs/MODEL_LICENSES.md)
+- [PRD v1.1](docs/PRD-v1.1.md)

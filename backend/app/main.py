@@ -22,12 +22,14 @@ from .adapters import (
 )
 from .models import (
     DEFAULT_LANGUAGES,
+    STAGE_ORDER,
     CampaignCreate,
     CampaignDetail,
     CampaignStatus,
     HealthResponse,
     ModelInfo,
     StageName,
+    StageStatus,
     TranscriptionResponse,
 )
 from .pipeline import CampaignRunner
@@ -45,6 +47,11 @@ ALLOWED_IMAGE_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
+}
+IMAGE_MAGIC_PREFIXES = {
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/webp": (b"RIFF",),
 }
 ALLOWED_AUDIO_TYPES = {
     "audio/wav": ".wav",
@@ -79,6 +86,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        for summary in store.list_campaigns():
+            if summary.status not in {CampaignStatus.queued, CampaignStatus.running}:
+                continue
+            campaign = store.get_campaign(summary.id)
+            first_incomplete = next(
+                (stage.name for stage in campaign.stages if stage.status != StageStatus.succeeded),
+                None,
+            )
+            if first_incomplete is None:
+                store.set_campaign_status(
+                    campaign.id,
+                    CampaignStatus.completed,
+                    artifacts=campaign.artifacts,
+                )
+                store.add_event(
+                    campaign.id,
+                    "campaign.recovered",
+                    "Recovered completed campaign state after backend restart",
+                )
+                continue
+            if first_incomplete not in STAGE_ORDER:
+                continue
+            store.reset_campaign_for_rerun(
+                campaign.id,
+                first_incomplete,
+                event_type="campaign.recovered",
+                event_message=(
+                    "Recovered interrupted campaign after backend restart from "
+                    f"{first_incomplete.value}"
+                ),
+            )
+            schedule(campaign.id, from_stage=first_incomplete)
         yield
         for task in tasks:
             if not task.done():
@@ -158,6 +197,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app_settings.uploads_dir / "campaigns",
             ALLOWED_IMAGE_TYPES,
             max_bytes=MAX_IMAGE_BYTES,
+            validate_image_magic=True,
         )
         payload = CampaignCreate(
             name=name,
@@ -259,24 +299,38 @@ async def _save_upload(
     target_dir: Path,
     allowed_types: dict[str, str],
     max_bytes: int,
+    validate_image_magic: bool = False,
 ) -> Path:
-    suffix = allowed_types.get(upload.content_type or "")
+    content_type = upload.content_type or ""
+    suffix = allowed_types.get(content_type)
     if suffix is None:
         raise HTTPException(status_code=415, detail="Unsupported upload content type")
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / f"{uuid.uuid4()}{suffix}"
     size = 0
+    head = b""
     with path.open("wb") as handle:
         while chunk := await upload.read(1024 * 1024):
             size += len(chunk)
             if size > max_bytes:
                 path.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="Upload exceeds 20MB limit")
+            if len(head) < 12:
+                head = (head + chunk)[:12]
             handle.write(chunk)
     if size == 0:
         path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="Upload cannot be empty")
+    if validate_image_magic and not _matches_image_magic(content_type, head):
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=415, detail="Upload content does not match image type")
     return path
+
+
+def _matches_image_magic(content_type: str, head: bytes) -> bool:
+    if content_type == "image/webp":
+        return len(head) >= 12 and head.startswith(b"RIFF") and head[8:12] == b"WEBP"
+    return any(head.startswith(prefix) for prefix in IMAGE_MAGIC_PREFIXES.get(content_type, ()))
 
 
 def _parse_csv(value: str) -> list[str]:

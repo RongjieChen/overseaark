@@ -210,7 +210,14 @@ class Store:
             conn.commit()
         return attempts
 
-    def reset_campaign_for_rerun(self, campaign_id: str, from_stage: StageName) -> None:
+    def reset_campaign_for_rerun(
+        self,
+        campaign_id: str,
+        from_stage: StageName,
+        *,
+        event_type: str = "campaign.rerun",
+        event_message: str | None = None,
+    ) -> None:
         timestamp = now_utc().isoformat()
         stage_index = STAGE_ORDER.index(from_stage)
         reset_stages = [stage.value for stage in STAGE_ORDER[stage_index:]]
@@ -244,7 +251,11 @@ class Store:
                 (StageStatus.pending.value, campaign_id, *reset_stages),
             )
             conn.commit()
-        self.add_event(campaign_id, "campaign.rerun", f"Campaign queued for rerun from {from_stage.value}")
+        self.add_event(
+            campaign_id,
+            event_type,
+            event_message or f"Campaign queued for rerun from {from_stage.value}",
+        )
 
     def request_cancel(self, campaign_id: str) -> None:
         with self._connect() as conn:

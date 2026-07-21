@@ -21,7 +21,7 @@ from app.adapters import (
     build_model_manager,
 )
 from app.main import TERMINAL_STATUSES, create_app
-from app.models import StageName
+from app.models import CampaignCreate, CampaignStatus, StageName, StageStatus
 from app.settings import Settings
 
 
@@ -82,6 +82,48 @@ async def wait_for_terminal(client: AsyncClient, campaign_id: str) -> dict:
             return payload
         await asyncio.sleep(0.02)
     pytest.fail("campaign did not reach a terminal state")
+
+
+@pytest.mark.asyncio
+async def test_startup_resumes_campaign_left_running_by_interrupted_process(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, adapter_mode="mock")
+    source_image = settings.uploads_dir / "campaigns" / "stale.png"
+    source_image.parent.mkdir(parents=True, exist_ok=True)
+    source_image.write_bytes(PNG_1X1)
+    stale_app = create_app(settings)
+    stale = stale_app.state.store.create_campaign(
+        CampaignCreate(
+            name="Interrupted campaign",
+            description="Resume this campaign after an interrupted backend process.",
+            source_market="CN",
+            target_markets=["US", "JP"],
+            languages=["zh", "en", "ja"],
+            product_image_path=str(source_image),
+        )
+    )
+    stale_app.state.store.set_campaign_status(
+        stale.id,
+        CampaignStatus.running,
+        current_stage=StageName.market_positioning,
+    )
+    stale_app.state.store.mark_stage(
+        stale.id,
+        StageName.market_positioning,
+        StageStatus.running,
+        attempts=1,
+    )
+
+    recovered_app = create_app(settings)
+    async with recovered_app.router.lifespan_context(recovered_app):
+        async with AsyncClient(
+            transport=ASGITransport(app=recovered_app), base_url="http://test"
+        ) as client:
+            recovered = await wait_for_terminal(client, stale.id)
+
+    assert recovered["status"] == "completed"
+    assert all(stage["status"] == "succeeded" for stage in recovered["stages"])
+    events = recovered_app.state.store.list_events(stale.id)
+    assert any(event.type == "campaign.recovered" for _, event in events)
 
 
 @pytest.mark.asyncio

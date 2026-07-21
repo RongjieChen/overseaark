@@ -1,77 +1,103 @@
 # Competition Notes
 
-OverseaArk's competition story is a local DGX Spark campaign workbench for cross-border sellers. The value claim is data locality plus multimodal campaign packaging, not cloud automation.
+OverseaArk's competition claim is a local DGX Spark campaign factory for cross-border sellers: one product image in, localized multimodal campaign package out, with data locality and model provenance.
 
 ## Demo Narrative
 
 1. Connect to DGX Spark through a localhost SSH tunnel.
-2. Open the app on `127.0.0.1:8000`.
+2. Open `http://127.0.0.1:8000`.
 3. Submit one product image and one product description.
-4. Watch six stages run: positioning, persona, copy, visual, media, packaging.
-5. Export a zip package with manifest, source image, generated visual, audio files, and campaign video.
+4. Watch six serialized stages: positioning, persona, copy, visual, media, packaging.
+5. Export a zip with manifest, source image, localized copy, poster, narration audio, composed campaign video, and QC report.
 
-If the backend or a model path is unavailable, the UI must show `partial` and `degraded` output instead of claiming success.
+If a model path or adapter fails, the product must show `partial` or `degraded` evidence instead of claiming final success.
 
 ## Implemented Evidence
 
-- Multipart product image upload and validation.
-- Six product stages in backend and frontend.
-- SQLite campaign state, stage state, and event log.
-- SSE event streaming.
-- Rerun from a selected stage.
+- Single monorepo: backend, frontend, scripts, tests, and model manifest.
+- No Docker, ComfyUI, OpenClaw, Ollama, or cloud inference dependency in the production path.
+- Root `./overseaark start` handles dependency repair, locked model verification, missing/corrupt model download, service startup, and health check.
+- FastAPI serves both `/api/v1` and the built frontend from `runtime/frontend-dist`.
+- SQLite campaign state, stage state, artifacts, and event log.
+- Multipart product-image upload validation.
+- Six-stage campaign runner with one retry per stage.
+- SSE progress stream.
+- Rerun from full campaign or selected stage.
 - Cancel and zip export.
-- Serialized model manager for heavy local model calls.
-- Mock mode with deterministic image/audio/video artifacts.
-- Command adapter scripts for LLM, image, video, ASR, and TTS.
-- Working Step-3.7 `llama-cli` command wrapper.
-- Self-healing root dispatcher: one `start` command bootstraps missing dependencies, repairs locked model files, starts the localhost service, and checks health.
-- FastAPI mounts the built frontend from `runtime/frontend-dist`.
-- Implemented E2E suite covers the `/api/v1` contract; mock mode currently passes 14 E2E tests.
-- Adversarial lifecycle tests inject missing models, same-size SHA corruption, missing runtime dependencies, disabled repair, and repeated preflights.
+- Mock mode for local rehearsals without GPU models.
+- Command adapters for Qwen3.6, Step1X, Cosmos3-Edge, Nemotron ASR, and Magpie TTS.
+- CUDA `llama.cpp` `llama-server` pinned to `76f46ad29d61fd8c1401e8221842934bf62a6064`.
+- ModelManager serialization and LLM stop-before-heavy-adapter behavior.
+- Step1X default `6` inference steps, validated by a 176.3-second DGX image benchmark.
+- Cosmos3-Edge default `28` inference steps and pinned Wan2.2 VAE dependency.
+- Nemotron ASR threshold check with one Magpie TTS retry per language.
+- Model manifest SHA-256 verification and same-size corruption cleanup.
 
-## Do Not Overclaim
+## DGX E2E Status
 
-- Do not claim ComfyUI or OpenClaw integration. They are intentionally not in this repo path.
-- Do not claim cloud inference. The runtime path is local commands and local files.
-- Do not claim real model quality validation until the command adapters run on DGX Spark with target model files. Adapter implementation and DGX inference validation are separate claims.
-- Do not label Cosmos fallback as final output unless validation has run. Use `degraded`.
+The latest status supplied for this documentation pass:
+
+| Run | Status | Notes |
+| --- | --- | --- |
+| Run 1 | Completed | Completed after an intermediate fix and rerun of the affected stage. |
+| Run 2 | Completed | Uninterrupted end-to-end completion in 10m34s; Japanese ASR threshold retry was exercised. |
+| Run 3 | Completed | Uninterrupted completion in 10m45s; real 854x480 Cosmos output, valid zip, and ASR similarity zh `0.833`, en `1.0`, ja `1.0`. |
+
+All three runs reached `completed`, but runs 2 and 3 exceeded the <=10 minute target. Treat that target as an open performance gap until a later measured run passes it.
 
 ## DGX Spark Fit
 
-- Localhost-only service binding protects demo services.
-- Unified-memory pressure is handled at the app level by serialized model calls.
-- Model files live under a local model directory and are pinned by manifest.
-- Mock mode lets the full app workflow run without GPU models for demo rehearsals.
-- Command mode gives a narrow integration boundary for DGX-local model wrappers.
+- Runs local native processes on the target host.
+- Binds service ports to localhost.
+- Uses SSH tunneling instead of public binding.
+- Keeps model weights under `/home/Developer/overseaark-models`.
+- Keeps generated business data under `/home/Developer/overseaark-data`.
+- Serializes heavy model calls for unified-memory pressure.
+- Starts Qwen3.6 through local CUDA `llama.cpp` and stops it before non-LLM GPU adapters.
+- Uses offline runtime flags during inference.
+- Records model ids, revisions, licenses, stage attempts, and calls in the export manifest.
 
-## Benchmarks to Capture
+## Benchmark Evidence to Capture
 
-| Benchmark | Command | Report |
+| Evidence | Command | Capture |
 | --- | --- | --- |
-| Root health | `OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark doctor` | Pass/fail and warnings. |
-| Model manifest | `./overseaark models verify` | Missing files, size mismatches, sha256 where available. |
+| Root health | `OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark doctor` | Pass/fail and warnings. |
+| Model manifest | `./overseaark models verify` | Missing files, size mismatches, SHA-256 mismatches. |
 | Backend tests | `cd backend && .venv/bin/python -m pytest` | Test count and failures. |
 | Frontend tests | `cd frontend && npm test` | Test count and failures. |
 | Frontend build | `cd frontend && npm run build` | Build success and output directory. |
-| E2E contract | `python3 tests/e2e/run_e2e.py --mock` | API contract pass/fail. |
-| Campaign smoke | API create + SSE + export | Terminal state, runtime, zip contents. |
-| ASR | Command adapter with known audio | Runtime and transcript sample. |
-| TTS | Command adapter with short copy | Runtime and audible/manual check. |
-| Image | Step1X adapter | Runtime, image path, manual review. |
-| Video | Cosmos3 adapter | Runtime, file path, degraded/final label. |
+| Mock E2E | `python3 tests/e2e/run_e2e.py --mock` | API contract pass/fail. |
+| One-click lifecycle | `bash tests/e2e/test_oneclick_start.sh` | Auto-repair and safety behavior. |
+| Campaign E2E | API create + SSE + export | Terminal state, runtime, zip contents. |
+| LLM | `./overseaark benchmark llm` | Required JSON keys and wall time. |
+| Image | `./overseaark benchmark image` | Runtime, output path, manual quality note. |
+| Audio | `./overseaark benchmark audio` | Three cycles, two voices per language, ASR similarity >= 0.75. |
+| Video | `./overseaark benchmark video` | Runtime, MP4 path, final/degraded label. |
 
-## Suggested Submission Language
+## Safe Submission Language
 
 Use:
 
-- "Local command adapter boundary implemented."
-- "Mock mode validates orchestration and export packaging."
-- "Model stack is pinned by manifest."
-- "Step-3.7 adapter invokes local llama-cli."
-- "Cosmos output is degraded unless validated."
+- "Single-repo local DGX Spark campaign workbench."
+- "No Docker or cloud inference path."
+- "Qwen3.6-35B-A3B Q4_K_M runs through local CUDA llama.cpp."
+- "Model stack is pinned by manifest with size and SHA-256 verification."
+- "Step1X defaults to 6 steps and Cosmos3-Edge defaults to 28 steps for measured demo latency."
+- "Nemotron ASR and Magpie TTS provide a measured audio QC loop."
+- "Three real DGX E2E runs completed; run 3 completed in 10m45s with a valid 480p model video and auditable export."
 
 Avoid:
 
-- "Model quality validated" without benchmark logs.
-- "Production-scale serving" without load, uptime, or deployment evidence.
-- "Cloud-free production run" unless network access was disabled or audited during the demo.
+- "Every run met the <=10 minute target"; the supplied evidence does not support that claim.
+- "Cloud-free production run" unless the specific run was audited with network controls.
+- "Model quality fully validated" without benchmark logs or review notes.
+- "Cosmos fallback is final output" when the adapter produced a degraded ffmpeg fallback.
+- "Docker deployment" or "Ollama integration"; neither is the current path.
+
+## Judge-facing Highlights
+
+- The application demonstrates DGX Spark as a self-contained creative workstation rather than a proxy to hosted inference.
+- The operational surface is one root command, not a notebook-only demo.
+- Model acquisition is reproducible through locked source revisions, file sizes, and hashes.
+- The campaign package is auditable: export includes stage payloads, QC report, model provenance, and artifacts.
+- The architecture handles constrained local GPU memory by serializing model work and releasing the LLM server on demand.

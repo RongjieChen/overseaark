@@ -6,7 +6,7 @@
 | --- | --- |
 | 文档版本 | v1.1 |
 | 文档状态 | 实施基线稿 |
-| 日期 | 2026-07-21 |
+| 日期 | 2026-07-22 |
 | 代码形态 | OverseaArk monorepo |
 | 目标平台 | NVIDIA DGX Spark, Ubuntu 24.04, aarch64, CUDA 13 |
 | 运行时 | Python 3.12, FastAPI, Vite TypeScript, SQLite, ffmpeg |
@@ -18,11 +18,7 @@
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
 | v1.0 | 2026-07-21 | 初版，定义外贸营销作战室方向 |
-| v1.1 | 2026-07-21 | 对齐已实现/批准合同：monorepo 目录、六阶段枚举、API v1、状态枚举、本地路径、部署、失败语义和验收标准 |
-
-## 目录
-
-DOCX 版本包含 Word 目录域。用 Microsoft Word 打开后选择「更新域 / Update Field」即可生成带页码目录。
+| v1.1 | 2026-07-22 | 对齐最终实机实现：Qwen3.6 GGUF、CUDA llama.cpp、Step1X、Cosmos3-Edge、NeMo 音频栈、按需模型卸载、自动下载与对抗性验收 |
 
 ## 1. 产品定位
 
@@ -82,16 +78,18 @@ overseaark/
 
 | 顺序 | 阶段枚举 | 模型/工具 | 主要输出 |
 | --- | --- | --- | --- |
-| 1 | `market_positioning` | Step-3.7 Q3_K_M + mmproj | `positioning`、`differentiators`、目标市场上下文 |
-| 2 | `buyer_persona` | Step-3.7 Q3_K_M | personas、采购动机、决策触发点 |
-| 3 | `multilingual_copy` | Step-3.7 Q3_K_M | zh/en/ja 的 headline、body、cta |
-| 4 | `visual_design` | Step1X-Edit-v1p2 | `visual_design.png` |
-| 5 | `media_production` | Cosmos3-Edge、Magpie TTS、ffmpeg；Cosmos-Predict2 仅可选 T2I | `campaign_video.mp4`、`voice_zh.wav`、`voice_en.wav`、`voice_ja.wav` |
-| 6 | `quality_packaging` | Nemotron ASR、Step-3.7、ffmpeg/zip | `manifest.json`、`qc_report.json`、`overseaark-export.zip` |
+| 1 | `market_positioning` | Qwen3.6-35B-A3B Q4_K_M + BF16 mmproj | `positioning`、`differentiators`、目标市场上下文 |
+| 2 | `buyer_persona` | Qwen3.6-35B-A3B | personas、采购动机、决策触发点 |
+| 3 | `multilingual_copy` | Qwen3.6-35B-A3B | zh/en/ja 的标题、卖点、详情、开发信和短视频脚本 |
+| 4 | `visual_design` | Step1X-Edit-v1p2 FP8 layerwise + Pillow | `visual_design.png`；生成背景与产品编辑后再由 Pillow 排字 |
+| 5 | `media_production` | Cosmos3-Edge、Wan2.2 VAE、Magpie TTS、ffmpeg | `cosmos_video.mp4`、`campaign_video.mp4`、三语 WAV 和英文字幕 |
+| 6 | `quality_packaging` | Nemotron ASR、确定性文件检查、zip | `manifest.json`、`qc_report.json`、`export.zip` |
 
 ### 4.1 Cosmos 约束
 
-Cosmos3-Edge 是 required video model，负责阶段 5 的视频产出路径。Cosmos-Predict2 是 optional pure text-to-image 辅助能力，不是阶段 5 的视频依赖；缺失 Cosmos-Predict2 不得把 `media_production` 标为 degraded，也不得阻断 480p MP4 生成。
+Cosmos3-Edge 是 required video model，通过固定版本 NVIDIA Cosmos Framework 直接推理，使用本地 Wan2.2 VAE 作为 vision tokenizer 依赖，输出 832×480、24 fps、121 帧的真实图生视频。Cosmos-Predict2 仅是 optional pure text-to-image 灵感图能力，不是阶段 5 的视频依赖。
+
+默认推理预算为 Step1X 6 步、Cosmos3-Edge 28 步；这是 DGX Spark 演示模式的实测平衡点，Step1X 单项基准为 176.3 秒，并可通过环境变量提高质量预算。Cosmos 真模型失败时，只有显式允许才生成标记为 `degraded` 的 ffmpeg 兜底视频；该产物不能让阶段冒充成功。
 
 ### 4.2 阶段状态
 
@@ -122,24 +120,25 @@ Stage 状态枚举仅为：
 
 | 能力 | 模型 | 修订/要求 | 必需性 |
 | --- | --- | --- | --- |
-| LLM/VLM | Step-3.7-Flash GGUF Q3_K_M + mmproj | `stepfun-ai/Step-3.7-Flash-GGUF`，Q3_K_M 三分片和 `mmproj-step3.7-flash-f16.gguf` | required |
-| 图片编辑 | Step1X-Edit-v1p2 | `stepfun-ai/Step1X-Edit-v1p2`，revision `ca85b97...` | required |
+| LLM/VLM | Qwen3.6-35B-A3B GGUF Q4_K_M + BF16 mmproj | ModelScope `ggml-org/Qwen3.6-35B-A3B-GGUF`，revision `37b9ed4...`；CUDA llama.cpp `76f46ad...` | required |
+| 图片编辑 | Step1X-Edit-v1p2 | `stepfun-ai/Step1X-Edit-v1p2`，revision `ca85b97...`；FP8 layerwise、默认全 GPU | required |
 | T2I 辅助 | Cosmos-Predict2 0.6B Text2Image | optional pure T2I；不能作为视频依赖 | optional |
-| 视频 | Cosmos3-Edge | revision `6f58f6...` | required |
+| 视频 | Cosmos3-Edge + Wan2.2 VAE | revision `6f58f6...`；Cosmos Framework `ed8287f...`；Wan VAE `921dbaf...` | required |
 | ASR | Nemotron ASR | revision `f3d333391852ba876df169dcc9ba902d25b6ab0b` | required |
 | TTS | Magpie TTS Multilingual 357M | revision `34d7e40da85cabc97f92198889b65cea27bc7fd1` | required |
+| TTS 解码依赖 | NeMo NanoCodec + ByT5 tokenizer | NanoCodec `3c482a4...`、ByT5 `68377bd...` | required |
 | 媒体 | ffmpeg/ffprobe | 本机二进制 | required |
 
 主链路不使用 ComfyUI、OpenClaw、云端 LLM、云端图像、云端语音或云端视频 API。
 
 ## 6. ModelManager 与统一内存
 
-ModelManager 是重型模型访问边界。它把 Step-3.7、Step1X、Cosmos3-Edge、Magpie TTS、Nemotron ASR 的调用串行化，避免多个大模型同时常驻 DGX Spark 统一内存。
+ModelManager 是重型模型访问边界。它把 Qwen3.6、Step1X、Cosmos3-Edge、Magpie TTS、Nemotron ASR 的调用串行化，避免多个大模型同时常驻 DGX Spark 统一内存。连续 LLM 阶段复用同一个本地 llama.cpp 进程；进入图片、视频或音频阶段前停止 LLM，重型 adapter 退出后释放 CUDA context。
 
 | 规则 | 要求 |
 | --- | --- |
 | 串行重型模型 | 同一时刻只允许一个 heavy model adapter active |
-| 命令边界 | command adapter 从 stdin 读 JSON，从 stdout 写 JSON |
+| 命令边界 | command adapter 从 stdin 读 JSON；最后一行 stdout 必须是结果 JSON，前置 NeMo 日志允许存在 |
 | 失败处理 | 非零退出、非 JSON、schema 不符均计为阶段失败 |
 | 残留清理 | 阶段结束后不得留下未回收模型子进程 |
 | 证据记录 | manifest/qc 记录模型 id、revision、路径、耗时、重试和离线标记 |
@@ -176,7 +175,7 @@ cp .env.example .env
 ./overseaark start
 ```
 
-`start` 必须是幂等一键入口：依赖缺失时自动 bootstrap，必需模型缺失、尺寸错误或 SHA256 不匹配时自动断点续传修复，然后启动服务并通过健康检查。`bootstrap` 和 `models sync` 保留为显式运维命令。
+`start` 必须是幂等一键入口：依赖缺失时自动 bootstrap，必需模型缺失、尺寸错误或 SHA256 不匹配时自动断点续传修复，然后构建前端、启动本地 LLM 和 FastAPI，并通过健康检查。安装必须使用 TUNA PyPI 镜像；模型按清单优先走 ModelScope，NVIDIA 音频模型通过固定 revision 的 Hugging Face 下载，并以 `https://hf-mirror.com` 加速。`bootstrap` 和 `models sync` 保留为显式运维命令。
 
 开发/烟测模式允许跳过重型模型：
 
@@ -224,9 +223,10 @@ ssh -p 6105 -L 8000:127.0.0.1:8000 root@106.13.186.155
 隐私要求：
 
 1. 上传图、描述、中间文件和结果默认只保存在 `/home/Developer/overseaark-data`。
-2. 日志不得记录客户名单、报价、联系方式等敏感字段原文。
-3. 导出包必须包含 manifest，记录模型版本、路径、重试、quality 标记和离线审计结论。
-4. 删除 campaign 时应删除 uploads、artifacts、events 中对应记录和文件。
+2. 服务只监听 `127.0.0.1`，远程使用 SSH 隧道；不开放 LAN 明文鉴权面。
+3. 推理进程固定 `HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1`，LLM 地址必须是 localhost。
+4. 导出包必须包含 manifest，记录模型版本、路径、重试、quality 标记和离线审计结论。
+5. 日志不得主动记录密钥；API key 只存于本地 data/run 目录。
 
 ## 12. 验收标准
 
@@ -238,7 +238,7 @@ ssh -p 6105 -L 8000:127.0.0.1:8000 root@106.13.186.155
 | AT-004 | ASR 相似度 | ASR 回读文本与 TTS 输入相似度 >= 0.75 |
 | AT-005 | 视频验收 | `campaign_video.mp4` 至少 480p，ffprobe 可读 |
 | AT-006 | 重试与 partial | 注入阶段失败后第二次尝试仍失败，campaign 为 `partial`，已有输出保留 |
-| AT-007 | Cosmos-Predict2 缺失 | 不影响 `media_production` 成功，不产生 stage5 degraded 状态 |
+| AT-007 | Cosmos 失败语义 | 若使用 ffmpeg 兜底，必须明确 `degraded` 且不得冒充真模型成功 |
 | AT-008 | OOM 与残留 | 三次完整运行后无 OOM、无模型子进程残留 |
 | AT-009 | 离线审计 | 主生成链路公网请求数为 0 |
 | AT-010 | API 契约 | `/api/v1` 路由、状态枚举和 SSE 可被 e2e 测试验证 |
@@ -253,4 +253,4 @@ ssh -p 6105 -L 8000:127.0.0.1:8000 root@106.13.186.155
 | 平台适配 | DGX Spark 统一内存和本地模型目录是核心运行假设 |
 | 演示效果 | 一次输入产生三语文案、视觉图、480p 视频、语音、QC 和 ZIP |
 
-v1.1 的产品合同已经收敛为可测试的本地系统：固定目录、固定阶段、固定 API、固定状态、固定模型路径和固定验收标准。后续实现或演示不得引入云端生成链路，也不得用未实现端点或额外状态枚举替代当前合同。
+v1.1 的产品合同已经收敛为可测试的本地系统：固定目录、固定阶段、固定 API、固定状态、固定模型路径和固定验收标准。实现借鉴了赛事 workshop 的环境自检、进程管理、健康轮询和统一内存释放思路，但明确拒绝其 Ollama、OpenClaw、ComfyUI 以及 LAN 明文入口；后续实现或演示不得引入云端生成链路。

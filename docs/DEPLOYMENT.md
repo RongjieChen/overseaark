@@ -1,13 +1,17 @@
 # Deployment
 
-This guide documents the current root-command deployment surface. It assumes DGX Spark runs Ubuntu 24.04 on aarch64 and services stay bound to `127.0.0.1`.
+This guide documents the current native DGX Spark deployment path. It assumes Ubuntu 24.04 aarch64, NVIDIA CUDA tools, local model storage, and services bound to `127.0.0.1`. There is no Docker deployment path.
 
 ## Configure
+
+From the repository root:
 
 ```bash
 cd /home/Developer/overseaark
 cp .env.example .env
 ```
+
+Copying `.env` is optional when the defaults are acceptable. Shell-provided environment variables override values loaded from `.env`.
 
 Important defaults:
 
@@ -15,33 +19,62 @@ Important defaults:
 OVERSEAARK_ROOT=/home/Developer/overseaark
 OVERSEAARK_MODELS_DIR=/home/Developer/overseaark-models
 OVERSEAARK_DATA_DIR=/home/Developer/overseaark-data
-OVERSEAARK_BACKEND_PORT=8000
-OVERSEAARK_FRONTEND_PORT=3000
+OVERSEAARK_LOG_DIR=/home/Developer/overseaark-data/logs
+OVERSEAARK_PID_DIR=/home/Developer/overseaark-data/run
 OVERSEAARK_HOST=127.0.0.1
+OVERSEAARK_BACKEND_PORT=8000
 OVERSEAARK_ADAPTER_MODE=command
+OVERSEAARK_STEP1X_STEPS=6
+OVERSEAARK_COSMOS_STEPS=28
 ```
 
-`OVERSEAARK_FRONTEND_PORT` remains in the env file for compatibility, but production frontend assets are mounted by FastAPI on `OVERSEAARK_BACKEND_PORT` when `runtime/frontend-dist` exists. If operating from `root` with a different checkout path, edit `.env` before running bootstrap.
+`OVERSEAARK_FRONTEND_PORT` remains for compatibility, but production frontend assets are served by FastAPI on `OVERSEAARK_BACKEND_PORT`.
 
-The `.env` copy is optional when the documented DGX paths and port are acceptable. The repository auto-selects command mode on Linux aarch64 with NVIDIA available.
+## Mirrors
+
+The default deployment settings use ModelScope and Hugging Face mirror access for model acquisition, plus TUNA for Python packages:
+
+```bash
+MODELSCOPE_ENDPOINT=https://modelscope.cn
+HF_ENDPOINT=https://hf-mirror.com
+OVERSEAARK_PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+OVERSEAARK_PYPI_FILE_PREFIX=https://pypi.tuna.tsinghua.edu.cn/packages/
+OVERSEAARK_PYTORCH_INDEX=https://mirrors.aliyun.com/pytorch-wheels/cu129
+OVERSEAARK_GITHUB_GIT_PREFIX=https://gh-proxy.com/https://github.com/
+OVERSEAARK_GITHUB_ASSET_PREFIX=https://ghfast.top/
+```
+
+Pinned Git revisions, uv locks, file sizes, and SHA-256 hashes remain the integrity authority even when mirrors are used.
 
 ## One-command Start
-
-The normal DGX entrypoint is:
 
 ```bash
 ./overseaark start
 ```
 
-It performs an idempotent dependency preflight, invokes bootstrap only when needed, verifies locked model sizes and SHA256 values, repairs missing/corrupt files through resumable downloads, starts the app, and requires the health endpoint to pass. Concurrent start/bootstrap operations are excluded by a host lock. Network interruption is recoverable by rerunning the same command.
+Startup performs these checks and repairs:
 
-The first download is about 152 GB. `OVERSEAARK_AUTO_BOOTSTRAP=0` and `OVERSEAARK_AUTO_DOWNLOAD_MODELS=0` convert startup to strict fail-fast mode.
+1. Validate localhost bind and numeric ports.
+2. Acquire a host operation lock.
+3. Bootstrap missing runtime dependencies when `OVERSEAARK_AUTO_BOOTSTRAP=1`.
+4. Build the frontend into `runtime/frontend-dist`.
+5. Build pinned CUDA `llama.cpp` `llama-server` when missing.
+6. Verify required model directories, sizes, and SHA-256 hashes.
+7. Download only missing or invalid locked model files when `OVERSEAARK_AUTO_DOWNLOAD_MODELS=1`.
+8. Start local `llama-server` for Qwen3.6 in command mode.
+9. Start FastAPI and wait for `/api/v1/health`.
 
-For the target mainland network, dependency bootstrap defaults to `OVERSEAARK_PYPI_INDEX=https://mirrors.aliyun.com/pypi/simple` plus `OVERSEAARK_PYPI_FILE_PREFIX=https://mirrors.aliyun.com/pypi/`, rewrites Git transport through `OVERSEAARK_GITHUB_GIT_PREFIX=https://gh-proxy.com/https://github.com/`, and routes pinned Cosmos release wheels through `OVERSEAARK_GITHUB_ASSET_PREFIX=https://ghfast.top/`. Cosmos sync uses `--frozen`; locked Git commits plus uv/model SHA256 values remain the integrity authority. Operators may replace any mirror; an empty Git, PyPI-file, or asset prefix uses the upstream URL directly.
+Repeat the same command after a network interruption. Completed downloads and valid locked files are reused.
 
-## Explicit Bootstrap
+Strict startup:
 
-Mock mode, local smoke only. This must override `.env.example`, which defaults to command mode:
+```bash
+OVERSEAARK_AUTO_BOOTSTRAP=0 OVERSEAARK_AUTO_DOWNLOAD_MODELS=0 ./overseaark start
+```
+
+## Bootstrap
+
+Mock/developer bootstrap:
 
 ```bash
 OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark bootstrap
@@ -53,45 +86,46 @@ Production-like bootstrap:
 ./overseaark bootstrap
 ```
 
-Bootstrap behavior:
+Bootstrap installs or prepares:
 
-- Installs system media tools, then verifies and installs the official Node.js `22.23.1` aarch64 archive by SHA-256 when Node 22 is absent.
-- Creates backend Python environment with `uv sync` or `backend/.venv`.
-- Builds the frontend.
-- Creates heavy adapter environments unless `OVERSEAARK_MOCK_MODE=1`.
-- Syncs models unless `OVERSEAARK_SKIP_MODELS=1`.
+- system tools: build essentials, cmake, curl, ffmpeg, git, git-lfs, Python headers, venv support
+- Node.js `22.23.1` aarch64 archive, verified by upstream SHA-256
+- backend Python environment under `backend/.venv`
+- frontend dependencies and production build
+- pinned CUDA `llama.cpp`
+- isolated Step1X, Cosmos, ASR, and TTS environments
+- Open JTalk dictionary for Japanese Magpie TTS
+- model sync unless `OVERSEAARK_SKIP_MODELS=1`
 
-Heavy framework pins installed by bootstrap:
+Heavy runtime pins:
 
-| Purpose | Framework | Commit |
+| Purpose | Runtime | Pin |
 | --- | --- | --- |
-| Step-3.7 LLM/VLM | ggml-org/llama.cpp | `76f46ad29d61fd8c1401e8221842934bf62a6064` |
+| Qwen3.6 LLM/VLM | `ggml-org/llama.cpp` | `76f46ad29d61fd8c1401e8221842934bf62a6064` |
 | Step1X image | Peyton-Chen/diffusers `step1xedit_v1p2` | `f5f1c98fa00cb4d0479af1b1b1c17d724345963a` |
 | Cosmos3 video | NVIDIA/cosmos-framework | `ed8287fd7477113f8ac4f6b84290514d55cf0cdc` |
-| ASR/TTS | NVIDIA-NeMo/NeMo | `93b15b1f423ddc8e0d189810fdd8304091d9b1bd` |
-
-The Step1X environment also pins `megfile==5.0.14` and
-`qwen-vl-utils==0.0.14`. The pinned fork imports both at pipeline load time but
-does not declare them in its package metadata, so bootstrap installs and
-preflights them explicitly.
+| Nemotron ASR | NVIDIA-NeMo/NeMo | `93b15b1f423ddc8e0d189810fdd8304091d9b1bd` |
+| Magpie TTS | NeMo TTS | `nemo_toolkit[tts]==2.7.3` |
 
 ## Model Directories
 
-`model-manifest.lock.json` pins the expected model layout under `OVERSEAARK_MODELS_DIR`:
+Required model layout under `OVERSEAARK_MODELS_DIR`:
 
 ```text
-stepfun/step-3.7-flash/
+qwen/qwen3.6-35b-a3b-gguf/
 stepfun/step1x-edit-v1p2/
-nvidia/cosmos-predict2-0.6b-text2image/
 nvidia/cosmos3-edge/
+wan/wan2.2-vae/
 nvidia/nemotron-3.5-asr-streaming-0.6b/
+nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps/
 nvidia/magpie_tts_multilingual_357m/
+google/byt5-small/
 ```
 
-Step-3.7 can adopt an existing verified directory from:
+Optional model:
 
 ```text
-/root/models/step-3.7-flash
+nvidia/cosmos-predict2-0.6b-text2image/
 ```
 
 Verify models:
@@ -100,28 +134,41 @@ Verify models:
 ./overseaark models verify
 ```
 
-Relax model checks for developer smoke:
+Download or repair models:
+
+```bash
+./overseaark models sync
+```
+
+Sync optional Cosmos-Predict2:
+
+```bash
+OVERSEAARK_SYNC_OPTIONAL_MODELS=1 ./overseaark models sync
+```
+
+Relax checks for local smoke runs:
 
 ```bash
 OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark models verify
 ```
 
-## Start and Stop
+## Operations
 
 ```bash
 ./overseaark start
 ./overseaark status
 ./overseaark logs all
+./overseaark logs llm
+./overseaark llm status
 ./overseaark stop
 ```
-
-`start` is safe to repeat after completion: valid dependencies and model files are reused, and an already-running healthy backend is retained.
 
 Current service layout:
 
 | Service | Bind | Notes |
 | --- | --- | --- |
-| Backend API + frontend | `127.0.0.1:8000` | FastAPI `app.main:app`; mounts `runtime/frontend-dist` with SPA fallback if built. |
+| FastAPI API + frontend | `127.0.0.1:8000` | `app.main:app`; mounts `runtime/frontend-dist`. |
+| Qwen3.6 llama.cpp server | `127.0.0.1:8011` | Started on demand; API-key file stored under `OVERSEAARK_PID_DIR`. |
 
 ## SSH Tunnel
 
@@ -135,27 +182,22 @@ ssh -p 6105 \
 
 Open:
 
-- Backend API: `http://127.0.0.1:8000/api/v1/health`
-- Backend OpenAPI: `http://127.0.0.1:8000/docs`
-- Frontend app: `http://127.0.0.1:8000`
+- App: `http://127.0.0.1:8000`
+- Health: `http://127.0.0.1:8000/api/v1/health`
+- OpenAPI: `http://127.0.0.1:8000/docs`
 
 Do not expose DGX services directly on public interfaces.
 
 ## API Smoke
 
-Health:
+These commands require a running service.
 
 ```bash
 curl -sS http://127.0.0.1:8000/api/v1/health
-```
-
-Models:
-
-```bash
 curl -sS http://127.0.0.1:8000/api/v1/models
 ```
 
-Campaign with product image:
+Create a campaign:
 
 ```bash
 curl -sS http://127.0.0.1:8000/api/v1/campaigns \
@@ -175,38 +217,36 @@ curl -sS http://127.0.0.1:8000/api/v1/transcriptions \
   -F 'language=auto'
 ```
 
-## Command Adapter Contracts
+## Command Adapter Payloads
 
-All adapter commands receive JSON on stdin and return JSON on stdout.
-
-LLM command receives:
+LLM:
 
 ```json
-{"task":"market_positioning","description":"...","source_market":"CN","target_markets":["US"],"languages":["zh","en","ja"]}
+{"task":"market_positioning","description":"...","source_market":"CN","target_markets":["US"],"languages":["zh","en","ja"],"product_image_path":"/path/product.png"}
 ```
 
-Image command receives:
+Image:
 
 ```json
-{"prompt":"...","source_image":"/path/product.png","output_path":"/path/visual_design.png"}
+{"prompt":"...","source_image":"/path/product.png","output_path":"/path/visual_design.png","overlay_text":"Ready for every journey"}
 ```
 
-Video command receives:
+Video:
 
 ```json
-{"prompt":"15 second localized product ad","image_path":"/path/visual_design.png","output_path":"/path/campaign_video.mp4"}
+{"prompt":"15 second localized product ad","image_path":"/path/visual_design.png","output_path":"/path/cosmos_video.mp4"}
 ```
 
-ASR command receives:
+ASR:
 
 ```json
 {"audio_path":"/path/demo.wav","language":"auto"}
 ```
 
-TTS command receives:
+TTS:
 
 ```json
-{"text":"...","language":"en","output_path":"/path/voice_en.wav"}
+{"text":"...","language":"en","speaker":"Jason","output_path":"/path/voice_en.wav"}
 ```
 
 ## Tests and Benchmarks
@@ -219,7 +259,7 @@ OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./o
 OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark test
 ```
 
-Backend direct test path:
+Backend direct:
 
 ```bash
 cd backend
@@ -228,7 +268,7 @@ python3 -m venv .venv
 .venv/bin/python -m pytest
 ```
 
-Frontend:
+Frontend direct:
 
 ```bash
 cd frontend
@@ -236,23 +276,39 @@ npm test
 npm run build
 ```
 
-Benchmark smoke:
+Direct command-mode benchmarks:
 
 ```bash
-OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark benchmark audio
+./overseaark benchmark llm
+./overseaark benchmark image
+./overseaark benchmark audio
+./overseaark benchmark video
 ```
 
-With command mode and verified models, the same four benchmark commands invoke the real local adapter processes. `benchmark audio` performs three cycles across zh/en/ja, two Magpie voices per language, specified and automatic ASR, and writes its evidence to `OVERSEAARK_DATA_DIR/benchmarks/`.
+Reports are written under `OVERSEAARK_DATA_DIR/benchmarks/`.
 
-Current mock validation coverage is 19 backend tests, 7 frontend tests, 14 E2E mock contract tests, and an adversarial shell lifecycle suite for auto-repair behavior. A DGX command-mode Step-3.7 schema run reached the 900-second safety limit and verified process-group/CUDA cleanup, but did not satisfy the result contract. Do not claim the 10-minute full-flow target, ASR WER, TTS MOS, Step-3.7 quality, image quality, or Cosmos video quality until the corresponding DGX acceptance run passes.
+## DGX E2E Evidence
+
+The documentation handoff included three successful real E2E results:
+
+| Run | Result |
+| --- | --- |
+| Run 1 | Completed after an intermediate fix and rerun of the affected stage. |
+| Run 2 | Completed uninterrupted in 10m34s; Japanese ASR threshold retry was exercised. |
+| Run 3 | Completed uninterrupted in 10m45s; audio similarity zh `0.833`, en `1.0`, ja `1.0`; 854x480 H.264/AAC output and zip integrity verified. |
+
+Treat these as DGX E2E status notes, not a replacement for the benchmark JSON artifacts under `OVERSEAARK_DATA_DIR/benchmarks/`. Runs 2 and 3 are successful functional evidence but do not pass the <=10 minute performance target.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `bootstrap finished but runtime dependency preflight still fails` | A pinned heavy environment did not finish installing | Rerun `./overseaark start`; downloads/install caches are reused. Inspect the preceding package error if it repeats. |
-| Frontend falls back to degraded preview | Backend unavailable or API failure | Check `./overseaark status`, `./overseaark logs backend`, and `http://127.0.0.1:8000/api/v1/health`. |
-| `command adapter mode requires commands for...` | Missing command envs | Use `local_runtime_env` defaults through `./overseaark start` or set all `OVERSEAARK_*_COMMAND` variables. |
-| Step-3.7 adapter exits with missing `llama-cli` | `OVERSEAARK_LLAMA_CLI` path is absent | Rerun `./overseaark start`; automatic bootstrap builds the pinned CUDA target. |
-| Model verification fails | Missing, truncated, or SHA-mismatched file | Rerun `./overseaark start`; the invalid locked file is removed and only the incomplete model is fetched. |
-| Upload rejected with 415 | Unsupported content type | Use PNG/JPEG/WebP for products and WAV/MP3/M4A/WebM for audio. |
+| `another start/bootstrap operation is already running` | Host operation lock is active. | Wait for the current start/bootstrap to finish; remove a stale lock only after confirming no owning process exists. |
+| `runtime dependencies are incomplete` | Backend/frontend/heavy adapter preflight failed. | Rerun `./overseaark start`; inspect package errors if it repeats. |
+| `pinned CUDA llama.cpp is missing` | `llama-server` is absent or wrong revision. | Run `./overseaark bootstrap` on target DGX Spark with CUDA build tools. |
+| `Qwen3.6 GGUF is missing` | Required Qwen file missing from model root. | Run `./overseaark models sync` or `./overseaark start`. |
+| `model verification failed` | Missing, truncated, unsafe, or SHA-mismatched file. | Rerun `./overseaark start`; invalid locked files are removed and fetched again. |
+| Adapter command timed out | A heavy adapter exceeded `OVERSEAARK_ADAPTER_TIMEOUT`. | Inspect adapter logs and increase timeout only when the run is otherwise healthy. |
+| `LLM server URL must remain localhost-only` | A remote `OVERSEAARK_LLM_BASE_URL` was configured. | Use the default `http://127.0.0.1:8011`. |
+| Frontend unavailable | `runtime/frontend-dist` missing or backend not running. | Rerun `./overseaark start`; check `./overseaark logs all`. |
+| Upload rejected with 415 | Unsupported content type or product-image header mismatch. | Use real PNG/JPEG/WebP files and keep the multipart `type=` value accurate. |

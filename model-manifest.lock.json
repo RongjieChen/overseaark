@@ -43,7 +43,7 @@
       "license": "Apache-2.0",
       "required": true,
       "allow_incomplete": false,
-      "notes": "Image adapter uses transformers==4.55.0 and Peyton-Chen/diffusers branch step1xedit_v1p2 with CPU offload on DGX Spark.",
+      "notes": "Image adapter uses transformers==4.55.0 and Peyton-Chen/diffusers branch step1xedit_v1p2 with FP8 layerwise casting and full-GPU execution by default on DGX Spark.",
       "files": [
         {
           "path": "text_encoder/model-00001-of-00004.safetensors",
