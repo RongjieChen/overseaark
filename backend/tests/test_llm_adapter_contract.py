@@ -80,6 +80,17 @@ def test_asr_adapter_uses_generic_local_nemo_restore_and_language_tags() -> None
     assert "from_pretrained" not in adapter
 
 
+def test_audio_runtimes_are_pinned_to_checkpoint_compatible_nemo_versions() -> None:
+    bootstrap = _read("scripts/bootstrap.sh")
+    common = _read("scripts/lib/common.sh")
+
+    assert ".venv-asr/bin/python" in common
+    assert ".venv-tts/bin/python" in common
+    assert "nemo_toolkit[tts]==2.7.3" in bootstrap
+    assert "NVIDIA-NeMo/NeMo.git@93b15b1f423ddc8e0d189810fdd8304091d9b1bd" in bootstrap
+    assert "nemo_toolkit[asr,tts]" not in bootstrap
+
+
 def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
     root = Path(__file__).resolve().parents[2]
     adapter = _read("scripts/adapters/tts_magpie.py")

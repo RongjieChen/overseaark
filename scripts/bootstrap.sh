@@ -216,17 +216,30 @@ create_adapter_envs() {
       "$REPO_DIR/.venv-cosmos/bin/uv" sync --frozen --group=cu130
   )
 
-  if [[ ! -d "$REPO_DIR/.venv-nemo" ]]; then
-    python3 -m venv "$REPO_DIR/.venv-nemo"
+  # Nemotron 3.5 ASR targets NeMo 26.06/main while Magpie v2602 targets
+  # the stable 25.11-era API. Keep their dependency graphs isolated.
+  if [[ ! -d "$REPO_DIR/.venv-asr" ]]; then
+    python3 -m venv "$REPO_DIR/.venv-asr"
   fi
-  "$REPO_DIR/.venv-nemo/bin/pip" install --upgrade pip wheel setuptools
-  "$REPO_DIR/.venv-nemo/bin/pip" install \
+  "$REPO_DIR/.venv-asr/bin/pip" install --upgrade pip wheel setuptools Cython packaging
+  "$REPO_DIR/.venv-asr/bin/pip" install \
     filelock "typing-extensions>=4.10" "sympy>=1.13.3" \
     "networkx>=2.5.1" jinja2 "fsspec>=0.8.5" numpy
-  "$REPO_DIR/.venv-nemo/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchaudio
-  "$REPO_DIR/.venv-nemo/bin/pip" install \
-    "nemo_toolkit[asr,tts] @ git+https://github.com/NVIDIA-NeMo/NeMo.git@93b15b1f423ddc8e0d189810fdd8304091d9b1bd" \
+  "$REPO_DIR/.venv-asr/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchaudio
+  "$REPO_DIR/.venv-asr/bin/pip" install \
+    "nemo_toolkit[asr] @ git+https://github.com/NVIDIA-NeMo/NeMo.git@93b15b1f423ddc8e0d189810fdd8304091d9b1bd" \
     kaldialign soundfile
+
+  if [[ ! -d "$REPO_DIR/.venv-tts" ]]; then
+    python3 -m venv "$REPO_DIR/.venv-tts"
+  fi
+  "$REPO_DIR/.venv-tts/bin/pip" install --upgrade pip wheel setuptools Cython packaging
+  "$REPO_DIR/.venv-tts/bin/pip" install \
+    filelock "typing-extensions>=4.10" "sympy>=1.13.3" \
+    "networkx>=2.5.1" jinja2 numpy
+  "$REPO_DIR/.venv-tts/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchaudio
+  "$REPO_DIR/.venv-tts/bin/pip" install --no-build-isolation \
+    "nemo_toolkit[tts]==2.7.3" kaldialign soundfile
 }
 
 ensure_dirs
