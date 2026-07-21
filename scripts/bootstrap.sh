@@ -141,7 +141,12 @@ create_adapter_envs() {
     git -C "$REPO_DIR/vendor/cosmos-framework" fetch --depth 1 origin "$cosmos_framework_revision"
   fi
   git -C "$REPO_DIR/vendor/cosmos-framework" checkout --detach "$cosmos_framework_revision"
-  (cd "$REPO_DIR/vendor/cosmos-framework" && "$REPO_DIR/.venv-cosmos/bin/uv" sync --all-extras --group=cu130-train)
+  (
+    cd "$REPO_DIR/vendor/cosmos-framework"
+    UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}" \
+      UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-10}" \
+      "$REPO_DIR/.venv-cosmos/bin/uv" sync --all-extras --group=cu130-train
+  )
 
   if [[ ! -d "$REPO_DIR/.venv-nemo" ]]; then
     python3 -m venv "$REPO_DIR/.venv-nemo"
