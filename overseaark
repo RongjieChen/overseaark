@@ -18,7 +18,7 @@ Commands:
   status                Show process, path, and model status
   logs [backend|frontend|llm|all]
                         Tail service logs
-  llm start|stop|status Manage the on-demand local llama.cpp process
+  llm start|stop|status Manage the on-demand local vLLM process
   doctor                Run non-destructive environment checks
   models verify         Verify model manifest and checksums
   models sync           Fetch model snapshots into the local model cache

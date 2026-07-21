@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
-source "$SCRIPT_DIR/llama_server.sh"
+source "$SCRIPT_DIR/vllm_server.sh"
 
 models_script="${OVERSEAARK_MODELS_SCRIPT:-$SCRIPT_DIR/models.sh}"
 bootstrap_script="${OVERSEAARK_BOOTSTRAP_SCRIPT:-$SCRIPT_DIR/bootstrap.sh}"
@@ -81,7 +81,7 @@ runtime_dependencies_ready() {
 
   have ffmpeg || return 1
   local_runtime_env
-  llama_install_ready || return 1
+  vllm_install_ready || return 1
   command_program "$OVERSEAARK_LLM_COMMAND" >/dev/null || return 1
   python_command_imports "$OVERSEAARK_IMAGE_COMMAND" \
     'import torch, PIL; from diffusers import Step1XEditPipelineV1P2' || return 1
@@ -170,14 +170,14 @@ start_one() {
 validate_startup_configuration() {
   [[ "$OVERSEAARK_STARTUP_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || \
     die "OVERSEAARK_STARTUP_TIMEOUT must be a positive integer"
-  [[ "$OVERSEAARK_LLAMA_STARTUP_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || \
-    die "OVERSEAARK_LLAMA_STARTUP_TIMEOUT must be a positive integer"
+  [[ "$OVERSEAARK_VLLM_STARTUP_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || \
+    die "OVERSEAARK_VLLM_STARTUP_TIMEOUT must be a positive integer"
   [[ "$OVERSEAARK_BACKEND_PORT" =~ ^[1-9][0-9]*$ ]] && \
     (( OVERSEAARK_BACKEND_PORT <= 65535 )) || \
     die "OVERSEAARK_BACKEND_PORT must be an integer from 1 to 65535"
-  [[ "$OVERSEAARK_LLAMA_PORT" =~ ^[1-9][0-9]*$ ]] && \
-    (( OVERSEAARK_LLAMA_PORT <= 65535 )) || \
-    die "OVERSEAARK_LLAMA_PORT must be an integer from 1 to 65535"
+  [[ "$OVERSEAARK_VLLM_PORT" =~ ^[1-9][0-9]*$ ]] && \
+    (( OVERSEAARK_VLLM_PORT <= 65535 )) || \
+    die "OVERSEAARK_VLLM_PORT must be an integer from 1 to 65535"
 }
 
 stop_one() {
@@ -236,7 +236,7 @@ start_all() {
       [[ -n "${!var:-}" ]] || die "command mode requires $var"
     done
     validate_offline_runtime
-    start_llama || die "CUDA llama.cpp startup failed; inspect ./overseaark logs llm"
+    start_vllm || die "native vLLM startup failed; inspect ./overseaark logs llm"
   else
     export OVERSEAARK_ADAPTER_MODE=mock
     export OVERSEAARK_MOCK_MODE=1
@@ -263,7 +263,7 @@ stop_all() {
   stop_one frontend
   stop_one backend
   if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
-    stop_llama
+    stop_vllm
   fi
 }
 
@@ -301,7 +301,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       printf 'bind       %s:%s\n' "$OVERSEAARK_HOST" "$OVERSEAARK_BACKEND_PORT"
       status_one backend
       if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
-        status_llama
+        status_vllm
       fi
       if [[ -d "$REPO_DIR/runtime/frontend-dist" || -d "$REPO_DIR/frontend/dist" ]]; then
         printf '%-10s built\n' "frontend"
@@ -312,9 +312,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     logs) shift || true; show_logs "${1:-all}" ;;
     llm)
       case "${2:-status}" in
-        start) start_llama ;;
-        stop) stop_llama ;;
-        status) status_llama ;;
+        start) start_vllm ;;
+        stop) stop_vllm ;;
+        status) status_vllm ;;
         *) die "llm command must be start, stop, or status" 64 ;;
       esac
       ;;

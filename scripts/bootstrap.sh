@@ -277,7 +277,7 @@ if is_truthy "$OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP"; then
   create_python_env
   install_frontend
   if ! is_truthy "$OVERSEAARK_MOCK_MODE"; then
-    bash "$SCRIPT_DIR/llama_server.sh" install
+    bash "$SCRIPT_DIR/vllm_server.sh" install
   fi
   create_adapter_envs
 else

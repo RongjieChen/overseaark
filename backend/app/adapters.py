@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 
-LLM_MODEL = "ggml-org/Qwen3.6-35B-A3B-GGUF"
+LLM_MODEL = "nvidia/Qwen3.6-35B-A3B-NVFP4"
 IMAGE_MODEL = "stepfun-ai/Step1X-Edit-v1p2"
 VIDEO_MODEL = "nvidia/Cosmos3-Edge"
 NEMOTRON_ASR_MODEL = "nvidia/nemotron-3.5-asr-streaming-0.6b"
@@ -377,7 +377,7 @@ async def _run_control_command(command: str, action: str) -> None:
     if not base_args:
         raise AdapterError("empty LLM control command")
     args = [*base_args, action]
-    # The start action intentionally daemonizes llama-server. A daemon can
+    # The start action intentionally daemonizes the vLLM server. A daemon can
     # briefly inherit its launcher's stdout/stderr file descriptors, so PIPE +
     # communicate() may wait for the daemon instead of the already-exited
     # control process. A seekable temporary file preserves failure diagnostics
@@ -392,7 +392,7 @@ async def _run_control_command(command: str, action: str) -> None:
         try:
             await asyncio.wait_for(
                 proc.wait(),
-                timeout=float(os.environ.get("OVERSEAARK_LLAMA_STARTUP_TIMEOUT", "900")),
+                timeout=float(os.environ.get("OVERSEAARK_VLLM_STARTUP_TIMEOUT", "1200")),
             )
         except TimeoutError as exc:
             await _terminate_process_group(proc)

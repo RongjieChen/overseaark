@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 
-LLAMA_REVISION = "76f46ad29d61fd8c1401e8221842934bf62a6064"
+VLLM_MODEL_REVISION = "491c2f1ea524c639598bf8fa787a93fed5a6fbce"
+VLLM_WHEEL_SHA256 = "bdffbe35b2c1ab8f2a9dcc337b657261d9b192c92c217e5a2f98a8835fe78daa"
 
 
 def _read(relative_path: str) -> str:
@@ -30,19 +31,23 @@ def _load_llm_adapter():
         sys.path.remove(str(adapter_dir))
 
 
-def test_qwen_adapter_uses_local_llama_cpp_api_and_json_schema() -> None:
+def test_qwen_adapter_uses_local_vllm_openai_chat_api_and_json_schema() -> None:
     adapter = _read("scripts/adapters/llm_step.py")
 
     assert "OVERSEAARK_LLM_BASE_URL" in adapter
+    assert 'http://127.0.0.1:8011' in adapter
     assert "/v1/chat/completions" in adapter
     assert "urllib.request.urlopen" in adapter
+    assert "OVERSEAARK_VLLM_API_KEY_FILE" in adapter
     assert 'headers["Authorization"] = f"Bearer {key}"' in adapter
     assert '"type": "image_url"' in adapter
     assert "Output JSON Schema" in adapter
     assert '"type": "json_schema"' in adapter
     assert '"json_schema": {"name": task, "strict": True, "schema": schema}' in adapter
-    assert '"enable_thinking": False' in adapter
+    assert '"chat_template_kwargs": {"enable_thinking": False}' in adapter
     assert "_extract_task_result" in adapter
+    assert "_local_vllm_endpoint" in adapter
+    assert 'parsed.hostname not in {"127.0.0.1", "localhost"}' in adapter
     assert "subprocess" not in adapter
     assert "OVERSEAARK_DOCKER" not in adapter
 
@@ -64,44 +69,84 @@ def test_multilingual_schema_is_language_exact_and_has_a_complete_token_budget(
     assert adapter._task_token_limit("multilingual_copy") == 3072
 
 
-def test_native_llama_runtime_is_pinned_cuda_accelerated_and_localhost_only() -> None:
+def test_native_vllm_runtime_is_pinned_cuda_accelerated_and_localhost_only() -> None:
     root = Path(__file__).resolve().parents[2]
     common = _read("scripts/lib/common.sh")
     bootstrap = _read("scripts/bootstrap.sh")
     lifecycle = _read("scripts/lifecycle.sh")
-    runtime = _read("scripts/llama_server.sh")
+    runtime = _read("scripts/vllm_server.sh")
     manifest = json.loads((root / "model-manifest.lock.json").read_text(encoding="utf-8"))
     scripts = "\n".join([common, bootstrap, lifecycle, runtime])
 
-    assert LLAMA_REVISION in common
-    assert 'bash "$SCRIPT_DIR/llama_server.sh" install' in bootstrap
-    assert "-DGGML_CUDA=ON" in runtime
-    assert "-DLLAMA_CURL=OFF" in runtime
-    assert "--model %q --mmproj %q" in runtime
-    assert "--gpu-layers all" in runtime
-    assert "--flash-attn on" in runtime
-    assert "--reasoning off" in runtime
+    assert VLLM_MODEL_REVISION in common
+    assert VLLM_WHEEL_SHA256 in common
+    assert "https://github.com/vllm-project/vllm/releases/download/v0.25.1/" in common
+    assert "https://pypi.tuna.tsinghua.edu.cn/simple" in common
+    assert "https://hf-mirror.com" in common
+    assert 'bash "$SCRIPT_DIR/vllm_server.sh" install' in bootstrap
+    assert "vllm.__version__.split(\"+\")[0] == expected" in runtime
+    assert '"Linux" && "$(uname -m)" == "aarch64"' in runtime
+    assert "Python 3.12 is required for native vLLM" in runtime
+    assert "sha256sum -c -" in runtime
+    assert "vllm-0.25.1%2Bcu129-cp38-abi3-manylinux_2_28_aarch64.whl" in common
+    assert "VLLM_API_KEY=%q" in runtime
+    assert "serve %q" in runtime
+    assert "--served-model-name %q" in runtime
     assert "--host 127.0.0.1" in runtime
-    assert "--api-key-file %q" in runtime
-    assert "--cors-origins localhost --no-cors-credentials" in runtime
+    assert "--port %q" in runtime
+    assert "--tensor-parallel-size 1" in runtime
+    assert "--kv-cache-dtype fp8" in runtime
+    assert "--attention-backend flashinfer" in runtime
+    assert "--moe-backend marlin" in runtime
+    assert "--gpu-memory-utilization %q" in runtime
+    assert "--max-model-len %q" in runtime
+    assert "--max-num-seqs %q" in runtime
+    assert "--max-num-batched-tokens %q" in runtime
+    assert "--enable-chunked-prefill --async-scheduling --enable-prefix-caching" in runtime
+    assert '"method":"mtp"' in runtime
+    assert "--load-format fastsafetensors --reasoning-parser qwen3" in runtime
+    assert "--tool-call-parser qwen3_xml --enable-auto-tool-choice" in runtime
     assert "HF_HUB_OFFLINE=1" in runtime
-    assert "start_llama" in lifecycle
+    assert "TRANSFORMERS_OFFLINE=1" in runtime
+    assert "HF_DATASETS_OFFLINE=1" in runtime
+    assert "VLLM_NO_USAGE_STATS=1" in runtime
+    assert "start_vllm" in lifecycle
     assert "OVERSEAARK_LLM_BASE_URL" in common
-    assert "http://127.0.0.1:$OVERSEAARK_LLAMA_PORT" in common
+    assert "http://127.0.0.1:$OVERSEAARK_VLLM_PORT" in common
+    assert "OVERSEAARK_VLLM_STARTUP_TIMEOUT" in common
+    assert "OVERSEAARK_VLLM_STARTUP_TIMEOUT must be a positive integer" in lifecycle
 
     primary = manifest["models"][0]
-    assert primary["provider"] == "modelscope"
-    assert primary["source"] == "ggml-org/Qwen3.6-35B-A3B-GGUF"
-    assert primary["revision"] == "37b9ed4ed8b3942a5ac69bffb490a5d25acdad4e"
+    assert primary["id"] == "qwen3.6-35b-a3b-nvfp4"
+    assert primary["provider"] == "huggingface"
+    assert primary["source"] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
+    assert primary["revision"] == VLLM_MODEL_REVISION
+    assert primary["local_dir"] == "nvidia/qwen3.6-35b-a3b-nvfp4"
     assert {item["path"] for item in primary["files"]} == {
-        "Qwen3.6-35B-A3B-Q4_K_M.gguf",
-        "mmproj-Qwen3.6-35B-A3B-BF16.gguf",
+        "chat_template.jinja",
+        "config.json",
+        "configuration.json",
+        "generation_config.json",
+        "hf_quant_config.json",
+        "model-00001-of-00003.safetensors",
+        "model-00002-of-00003.safetensors",
+        "model-00003-of-00003.safetensors",
+        "model.safetensors.index.json",
+        "preprocessor_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "video_preprocessor_config.json",
+        "vocab.json",
     }
+    assert len(primary["files"]) == 14
+    assert all(item["required"] is True for item in primary["files"])
     assert primary["required"] is True
 
     assert "OVERSEAARK_DOCKER" not in scripts
     assert "docker exec" not in scripts.lower()
     assert "docker run" not in scripts.lower()
+    assert "llama_server" not in scripts
+    assert "llama.cpp" not in scripts
 
 
 def test_cosmos_inference_dependency_is_installed_without_training_extra() -> None:

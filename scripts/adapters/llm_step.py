@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from adapter_common import models_root, read_payload, require_path, write_result
 
 
-MODEL_ID = "ggml-org/Qwen3.6-35B-A3B-GGUF"
+MODEL_ID = "nvidia/Qwen3.6-35B-A3B-NVFP4"
 STRING_ARRAY = {"type": "array", "items": {"type": "string"}}
 TASK_SCHEMAS = {
     "market_positioning": {
@@ -203,29 +203,29 @@ def _messages(payload: dict[str, Any], task: str, schema: dict[str, Any]) -> lis
     ]
 
 
-def _local_llama_endpoint() -> str:
+def _local_vllm_endpoint() -> str:
     base_url = os.environ.get("OVERSEAARK_LLM_BASE_URL", "http://127.0.0.1:8011")
     parsed = urlsplit(base_url)
     if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
-        raise SystemExit(f"refusing non-local llama.cpp endpoint: {base_url}")
+        raise SystemExit(f"refusing non-local vLLM endpoint: {base_url}")
     if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
-        raise SystemExit(f"invalid local llama.cpp base URL: {base_url}")
+        raise SystemExit(f"invalid local vLLM base URL: {base_url}")
     return f"{base_url.rstrip('/')}/v1/chat/completions"
 
 
-def _invoke_llama(payload: dict[str, Any]) -> dict[str, Any]:
+def _invoke_vllm(payload: dict[str, Any]) -> dict[str, Any]:
     headers = {"Content-Type": "application/json"}
-    key_file = os.environ.get("OVERSEAARK_LLAMA_API_KEY_FILE")
+    key_file = os.environ.get("OVERSEAARK_VLLM_API_KEY_FILE")
     if key_file:
         key_path = Path(key_file)
         if not key_path.is_file():
-            raise SystemExit(f"local llama.cpp API key file is missing: {key_file}")
+            raise SystemExit(f"local vLLM API key file is missing: {key_file}")
         key = key_path.read_text(encoding="utf-8").strip()
         if not key:
-            raise SystemExit(f"local llama.cpp API key file is empty: {key_file}")
+            raise SystemExit(f"local vLLM API key file is empty: {key_file}")
         headers["Authorization"] = f"Bearer {key}"
     request = urllib.request.Request(
-        _local_llama_endpoint(),
+        _local_vllm_endpoint(),
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers=headers,
         method="POST",
@@ -238,11 +238,11 @@ def _invoke_llama(payload: dict[str, Any]) -> dict[str, Any]:
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"local llama.cpp HTTP {exc.code}: {detail}") from exc
+        raise SystemExit(f"local vLLM HTTP {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
-        raise SystemExit(f"local llama.cpp request failed: {exc.reason}") from exc
+        raise SystemExit(f"local vLLM request failed: {exc.reason}") from exc
     if not isinstance(result, dict):
-        raise SystemExit("local llama.cpp returned a non-object response")
+        raise SystemExit("local vLLM returned a non-object response")
     return result
 
 
@@ -251,8 +251,8 @@ def main() -> None:
     task = str(payload.pop("task", "general"))
     schema = _schema_for_task(task, payload)
     require_path(
-        models_root() / "qwen/qwen3.6-35b-a3b-gguf/Qwen3.6-35B-A3B-Q4_K_M.gguf",
-        "Qwen3.6-35B-A3B Q4_K_M GGUF",
+        models_root() / "nvidia/qwen3.6-35b-a3b-nvfp4/config.json",
+        "NVIDIA Qwen3.6-35B-A3B NVFP4",
     )
     request = {
         "model": MODEL_ID,
@@ -266,13 +266,13 @@ def main() -> None:
             "json_schema": {"name": task, "strict": True, "schema": schema},
         },
     }
-    response = _invoke_llama(request)
+    response = _invoke_vllm(request)
     try:
         content = response["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise SystemExit(f"local llama.cpp response is missing assistant content: {response}") from exc
+        raise SystemExit(f"local vLLM response is missing assistant content: {response}") from exc
     if not isinstance(content, str):
-        raise SystemExit("local llama.cpp assistant content is not text")
+        raise SystemExit("local vLLM assistant content is not text")
     try:
         result = _extract_task_result(content, task)
     except SystemExit as exc:

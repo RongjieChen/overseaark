@@ -76,7 +76,7 @@ async def test_command_payload_treats_prompt_injection_as_inert_json(
 
 
 @pytest.mark.asyncio
-async def test_heavy_adapter_switch_stops_llama_before_cuda_work(monkeypatch) -> None:
+async def test_heavy_adapter_switch_stops_vllm_before_cuda_work(monkeypatch) -> None:
     events: list[str] = []
 
     async def fake_control(command: str, action: str) -> None:
@@ -111,7 +111,7 @@ async def test_heavy_adapter_switch_stops_llama_before_cuda_work(monkeypatch) ->
 
 
 @pytest.mark.asyncio
-async def test_llm_control_returns_when_daemon_inherits_standard_output(
+async def test_llm_control_returns_when_vllm_daemon_inherits_standard_output(
     tmp_path: Path, monkeypatch
 ) -> None:
     pid_path = tmp_path / "daemon.pid"
@@ -122,7 +122,7 @@ async def test_llm_control_returns_when_daemon_inherits_standard_output(
         "pathlib.Path(sys.argv[1]).write_text(str(child.pid))\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("OVERSEAARK_LLAMA_STARTUP_TIMEOUT", "1")
+    monkeypatch.setenv("OVERSEAARK_VLLM_STARTUP_TIMEOUT", "1")
 
     started = time.monotonic()
     await _run_control_command(f"{sys.executable} {script} {pid_path}", "start")

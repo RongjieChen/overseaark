@@ -143,22 +143,40 @@ if remove_invalid_model_files path-traversal "$fake_model_root/example" >/dev/nu
 fi
 [[ -f "$tmp_dir/victim.bin" ]]
 
-# Native llama.cpp command must use only locked local GGUFs and loopback API.
-OVERSEAARK_LLAMA_SERVER="$tmp_dir/fake-llama/bin/llama-server"
-OVERSEAARK_LLAMA_MODEL="$tmp_dir/models/qwen/Qwen3.6-Q4_K_M.gguf"
-OVERSEAARK_LLAMA_MMPROJ="$tmp_dir/models/qwen/mmproj-BF16.gguf"
-OVERSEAARK_LLAMA_API_KEY_FILE="$tmp_dir/data/run/llama-api-key"
-OVERSEAARK_LLAMA_PORT=18011
-native_command="$(llama_command)"
+# Native vLLM command must use only the locked local NVFP4 model and loopback API.
+OVERSEAARK_VLLM_BIN="$tmp_dir/fake-vllm/bin/vllm"
+OVERSEAARK_VLLM_MODEL_DIR="$tmp_dir/models/nvidia/qwen3.6-35b-a3b-nvfp4"
+OVERSEAARK_VLLM_SERVED_MODEL="nvidia/Qwen3.6-35B-A3B-NVFP4"
+OVERSEAARK_VLLM_API_KEY_FILE="$tmp_dir/data/run/vllm-api-key"
+OVERSEAARK_VLLM_PORT=18011
+mkdir -p "$(dirname "$OVERSEAARK_VLLM_API_KEY_FILE")"
+printf 'local-test-key\n' > "$OVERSEAARK_VLLM_API_KEY_FILE"
+native_command="$(vllm_command)"
 [[ "$native_command" == *"127.0.0.1"* ]]
-[[ "$native_command" == *"--gpu-layers all"* ]]
-[[ "$native_command" == *"--flash-attn on"* ]]
-[[ "$native_command" == *"--mmproj"* ]]
-[[ "$native_command" == *"--no-webui"* ]]
-[[ "$native_command" == *"--api-key-file"* ]]
-[[ "$native_command" == *"--cors-origins localhost"* ]]
+[[ "$native_command" == *"VLLM_API_KEY=local-test-key"* ]]
+[[ "$native_command" == *"serve"* ]]
+[[ "$native_command" == *"nvidia/qwen3.6-35b-a3b-nvfp4"* ]]
+[[ "$native_command" == *"--served-model-name nvidia/Qwen3.6-35B-A3B-NVFP4"* ]]
+[[ "$native_command" == *"--tensor-parallel-size 1"* ]]
+[[ "$native_command" == *"--kv-cache-dtype fp8"* ]]
+[[ "$native_command" == *"--attention-backend flashinfer"* ]]
+[[ "$native_command" == *"--moe-backend marlin"* ]]
+[[ "$native_command" == *"--gpu-memory-utilization"* ]]
+[[ "$native_command" == *"--max-model-len"* ]]
+[[ "$native_command" == *"--max-num-seqs"* ]]
+[[ "$native_command" == *"--max-num-batched-tokens"* ]]
+[[ "$native_command" == *"--enable-chunked-prefill"* ]]
+[[ "$native_command" == *"--async-scheduling"* ]]
+[[ "$native_command" == *"--enable-prefix-caching"* ]]
+[[ "$native_command" == *'"method":"mtp"'* ]]
+[[ "$native_command" == *"--load-format fastsafetensors"* ]]
+[[ "$native_command" == *"--reasoning-parser qwen3"* ]]
+[[ "$native_command" == *"--tool-call-parser qwen3_xml"* ]]
+[[ "$native_command" == *"--enable-auto-tool-choice"* ]]
 [[ "$native_command" == *"HF_HUB_OFFLINE=1"* ]]
+[[ "$native_command" == *"TRANSFORMERS_OFFLINE=1"* ]]
 [[ "$native_command" != *"docker"* ]]
+[[ "$native_command" != *"llama"* ]]
 
 # Fault: malformed startup configuration must fail before any process action.
 if (OVERSEAARK_STARTUP_TIMEOUT=invalid; validate_startup_configuration) >/dev/null 2>&1; then
@@ -169,11 +187,11 @@ if (OVERSEAARK_BACKEND_PORT=70000; validate_startup_configuration) >/dev/null 2>
   echo "out-of-range backend port unexpectedly passed validation" >&2
   exit 1
 fi
-if (OVERSEAARK_LLAMA_STARTUP_TIMEOUT=invalid; validate_startup_configuration) >/dev/null 2>&1; then
+if (OVERSEAARK_VLLM_STARTUP_TIMEOUT=invalid; validate_startup_configuration) >/dev/null 2>&1; then
   echo "malformed LLM startup timeout unexpectedly passed validation" >&2
   exit 1
 fi
-if (OVERSEAARK_LLAMA_PORT=70000; validate_startup_configuration) >/dev/null 2>&1; then
+if (OVERSEAARK_VLLM_PORT=70000; validate_startup_configuration) >/dev/null 2>&1; then
   echo "out-of-range LLM port unexpectedly passed validation" >&2
   exit 1
 fi
@@ -182,7 +200,7 @@ if (OVERSEAARK_ADAPTER_MODE=command OVERSEAARK_LLM_BASE_URL=https://example.inva
   exit 1
 fi
 
-# Command-mode startup must launch the native llama.cpp process. Heavy dependencies
+# Command-mode startup must launch the native vLLM process. Heavy dependencies
 # are stubbed so this remains a no-download regression test.
 : > "$STUB_STATE_DIR/native-start-calls"
 ensure_runtime_dependencies() { printf 'runtime\n' >> "$STUB_STATE_DIR/native-start-calls"; }
@@ -192,14 +210,14 @@ backend_cmd() { printf 'true'; }
 frontend_cmd() { printf 'true'; }
 start_one() { printf 'start-one:%s\n' "$1" >> "$STUB_STATE_DIR/native-start-calls"; }
 wait_for_backend() { printf 'backend-ready\n' >> "$STUB_STATE_DIR/native-start-calls"; }
-start_llama() {
-  printf 'start-llama\n' >> "$STUB_STATE_DIR/native-start-calls"
+start_vllm() {
+  printf 'start-vllm\n' >> "$STUB_STATE_DIR/native-start-calls"
 }
 OVERSEAARK_ADAPTER_MODE=command
 OVERSEAARK_MOCK_MODE=0
 OVERSEAARK_HOST=127.0.0.1
 start_all
-grep -qx 'start-llama' "$STUB_STATE_DIR/native-start-calls"
+grep -qx 'start-vllm' "$STUB_STATE_DIR/native-start-calls"
 OVERSEAARK_ADAPTER_MODE=mock
 
 # Fault: hosts without flock still need an exclusive, stale-recoverable lock.
