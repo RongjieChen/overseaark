@@ -83,7 +83,7 @@ PY
   "$pip" install --index-url "$OVERSEAARK_PYPI_INDEX" --upgrade pip wheel setuptools
   "$pip" install \
     --index-url "$OVERSEAARK_PYPI_INDEX" \
-    --extra-index-url https://download.pytorch.org/whl/cu129 \
+    --extra-index-url "$OVERSEAARK_PYTORCH_INDEX" \
     "$VLLM_WHEEL_CACHE"
   vllm_install_ready || die "native vLLM installed but CUDA import verification failed"
   "$OVERSEAARK_VLLM_PYTHON" - <<'PY'
