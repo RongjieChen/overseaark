@@ -183,6 +183,11 @@ def main() -> int:
     if args.modality == "llm":
         product = workdir / "product.ppm"
         write_product_image(product)
+        llm_env = (
+            {}
+            if "OVERSEAARK_LLM_TOKENS" in os.environ
+            else {"OVERSEAARK_LLM_TOKENS": "192"}
+        )
         result = run_adapter(
             "OVERSEAARK_LLM_COMMAND",
             {
@@ -193,7 +198,7 @@ def main() -> int:
                 "languages": ["zh", "en", "ja"],
                 "product_image_path": str(product),
             },
-            extra_env={"OVERSEAARK_LLM_TOKENS": "192"},
+            extra_env=llm_env,
         )
     elif args.modality == "image":
         result = image_benchmark(workdir)

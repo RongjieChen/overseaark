@@ -321,6 +321,12 @@ async def _run_command(command: str, payload: dict[str, Any]) -> dict[str, Any]:
     args = shlex.split(command)
     if not args:
         raise AdapterError("empty adapter command")
+    try:
+        timeout = float(os.environ.get("OVERSEAARK_ADAPTER_TIMEOUT", "1200"))
+    except ValueError as exc:
+        raise AdapterError("OVERSEAARK_ADAPTER_TIMEOUT must be numeric") from exc
+    if timeout <= 0:
+        raise AdapterError("OVERSEAARK_ADAPTER_TIMEOUT must be greater than zero")
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE,
@@ -328,10 +334,6 @@ async def _run_command(command: str, payload: dict[str, Any]) -> dict[str, Any]:
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
-    timeout = float(os.environ.get("OVERSEAARK_ADAPTER_TIMEOUT", "1200"))
-    if timeout <= 0:
-        await _terminate_process_group(proc)
-        raise AdapterError("OVERSEAARK_ADAPTER_TIMEOUT must be greater than zero")
     try:
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(json.dumps(payload).encode("utf-8")), timeout=timeout

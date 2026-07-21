@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import sys
 import zipfile
 from collections import defaultdict
@@ -30,13 +31,46 @@ def make_app(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_command_adapter_timeout_terminates_process_group(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("OVERSEAARK_ADAPTER_TIMEOUT", "0.05")
-    command = f'{sys.executable} -c "import time; time.sleep(30)"'
+    child_pid_path = tmp_path / "child.pid"
+    script = tmp_path / "process_tree.py"
+    script.write_text(
+        "import pathlib, subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(child.pid))\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    command = f"{sys.executable} {script} {child_pid_path}"
 
     with pytest.raises(AdapterError, match="process group was terminated"):
         await _run_command(command, {})
+
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    for _ in range(100):
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        await asyncio.sleep(0.01)
+    else:
+        pytest.fail("adapter timeout left a child process running")
+
+
+@pytest.mark.asyncio
+async def test_command_adapter_rejects_malformed_timeout_before_spawn(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    marker = tmp_path / "spawned"
+    monkeypatch.setenv("OVERSEAARK_ADAPTER_TIMEOUT", "not-a-number")
+    command = f'{sys.executable} -c "from pathlib import Path; Path(r\'{marker}\').touch()"'
+
+    with pytest.raises(AdapterError, match="must be numeric"):
+        await _run_command(command, {})
+
+    assert not marker.exists()
 
 
 async def wait_for_terminal(client: AsyncClient, campaign_id: str) -> dict:
