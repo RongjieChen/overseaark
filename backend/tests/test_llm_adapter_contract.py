@@ -68,6 +68,13 @@ def test_multilingual_schema_is_language_exact_and_has_a_complete_token_budget(
     assert copy_schema["additionalProperties"] is False
     assert adapter._task_token_limit("multilingual_copy") == 3072
 
+    messages = adapter._messages(
+        {"languages": ["zh", "en", "ja"]}, "multilingual_copy", schema
+    )
+    prompt = messages[0]["content"]
+    assert "expand Latin abbreviations" in prompt
+    assert "pronounceable Japanese script" in prompt
+
 
 def test_native_vllm_runtime_is_pinned_cuda_accelerated_and_localhost_only() -> None:
     root = Path(__file__).resolve().parents[2]

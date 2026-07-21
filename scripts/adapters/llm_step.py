@@ -187,7 +187,10 @@ def _messages(payload: dict[str, Any], task: str, schema: dict[str, Any]) -> lis
         prompt += (
             "\nUse exactly the requested language keys. Keep every field concise. "
             "Each video_script must be natural speech lasting about 5 seconds: "
-            "at most 28 Chinese/Japanese characters or 16 English words."
+            "at most 28 Chinese/Japanese characters or 16 English words. "
+            "For a zh video_script, use only Chinese characters and punctuation; "
+            "expand Latin abbreviations, units, and product codes into natural Chinese words. "
+            "For a ja video_script, render Latin abbreviations as pronounceable Japanese script."
         )
     if not image_path:
         return [{"role": "user", "content": prompt}]
