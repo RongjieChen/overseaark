@@ -76,6 +76,9 @@ def test_asr_adapter_uses_generic_local_nemo_restore_and_language_tags() -> None
     ).read_text(encoding="utf-8")
 
     assert "nemo_asr.models.ASRModel.restore_from" in adapter
+    assert "RNNTPromptTranscribeConfig" in adapter
+    assert "use_lhotse=False" in adapter
+    assert "override_config=transcribe_config" in adapter
     assert "tagged_language" in adapter
     assert "from_pretrained" not in adapter
 

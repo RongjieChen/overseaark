@@ -46,6 +46,7 @@ def main() -> None:
     )
     try:
         import nemo.collections.asr as nemo_asr
+        from nemo.collections.asr.models.rnnt_bpe_models_prompt import RNNTPromptTranscribeConfig
     except Exception as exc:
         raise SystemExit("ASR adapter requires NVIDIA NeMo installed in the ASR environment") from exc
 
@@ -53,11 +54,18 @@ def main() -> None:
     if language not in LANGUAGE_PROMPTS:
         raise SystemExit(f"unsupported ASR language: {language}")
     model = nemo_asr.models.ASRModel.restore_from(str(model_path), map_location="cuda")
-    result = model.transcribe(
-        [payload["audio_path"]],
+    transcribe_config = RNNTPromptTranscribeConfig(
+        use_lhotse=False,
+        batch_size=1,
         return_hypotheses=True,
+        num_workers=0,
         timestamps=True,
         target_lang=LANGUAGE_PROMPTS[language],
+    )
+    result = model.transcribe(
+        [payload["audio_path"]],
+        timestamps=True,
+        override_config=transcribe_config,
     )[0]
     text = str(_value(result, "text", result if isinstance(result, str) else ""))
     tag = re.search(r"<([a-z]{2}(?:-[A-Z]{2})?)>\s*$", text)
