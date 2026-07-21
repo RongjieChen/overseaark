@@ -121,25 +121,37 @@ create_python_env() {
   fi
 }
 
-rewrite_cosmos_asset_urls() {
-  [[ -n "$OVERSEAARK_GITHUB_ASSET_PREFIX" ]] || return 0
+rewrite_cosmos_locked_urls() {
   local lock_file="$REPO_DIR/vendor/cosmos-framework/uv.lock"
   [[ -f "$lock_file" ]] || die "Cosmos uv.lock is missing: $lock_file"
-  python3 - "$lock_file" "$OVERSEAARK_GITHUB_ASSET_PREFIX" <<'PY'
+  python3 - "$lock_file" "$1" \
+    "$OVERSEAARK_PYPI_FILE_PREFIX" "$OVERSEAARK_GITHUB_ASSET_PREFIX" <<'PY'
+import subprocess
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-prefix = sys.argv[2].rstrip("/") + "/"
-marker = "https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/"
+revision = sys.argv[2]
+pypi_prefix = sys.argv[3].rstrip("/") + "/" if sys.argv[3] else ""
+github_prefix = sys.argv[4].rstrip("/") + "/" if sys.argv[4] else ""
+canonical = subprocess.run(
+    ["git", "-C", str(path.parent), "show", f"{revision}:uv.lock"],
+    check=True,
+    stdout=subprocess.PIPE,
+    text=True,
+).stdout
+pypi_marker = "https://files.pythonhosted.org/"
+github_marker = "https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/"
 rewritten = []
-for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
-    marker_at = line.find(marker)
+for line in canonical.splitlines(keepends=True):
+    marker = github_marker if github_marker in line else pypi_marker if pypi_marker in line else ""
+    prefix = github_prefix if marker == github_marker else pypi_prefix
+    marker_at = line.find(marker) if marker and prefix else -1
     if marker_at >= 0 and line.lstrip().startswith("{ url = \""):
         url_start = line.find("https://")
         url_end = line.find('"', marker_at)
-        original_url = line[marker_at:url_end]
-        line = line[:url_start] + prefix + original_url + line[url_end:]
+        suffix = line[marker_at:url_end] if marker == github_marker else line[marker_at + len(marker):url_end]
+        line = line[:url_start] + prefix + suffix + line[url_end:]
     rewritten.append(line)
 path.write_text("".join(rewritten), encoding="utf-8")
 PY
@@ -206,14 +218,14 @@ create_adapter_envs() {
     git -C "$REPO_DIR/vendor/cosmos-framework" fetch --depth 1 origin "$cosmos_framework_revision"
   fi
   git -C "$REPO_DIR/vendor/cosmos-framework" checkout --detach "$cosmos_framework_revision"
-  rewrite_cosmos_asset_urls
+  rewrite_cosmos_locked_urls "$cosmos_framework_revision"
   (
     cd "$REPO_DIR/vendor/cosmos-framework"
     UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX:-$OVERSEAARK_PYPI_INDEX}" \
       UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}" \
       UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-10}" \
       UV_CONCURRENT_DOWNLOADS="${UV_CONCURRENT_DOWNLOADS:-4}" \
-      "$REPO_DIR/.venv-cosmos/bin/uv" sync --group=cu130
+      "$REPO_DIR/.venv-cosmos/bin/uv" sync --frozen --group=cu130
   )
 
   if [[ ! -d "$REPO_DIR/.venv-nemo" ]]; then
