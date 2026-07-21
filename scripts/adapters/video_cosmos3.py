@@ -26,7 +26,7 @@ def main() -> None:
                     "model_mode": "image2video",
                     "prompt": payload["prompt"],
                     "vision_path": str(payload["image_path"]),
-                    "resolution": 480,
+                    "resolution": "480",
                     "aspect_ratio": "16,9",
                     "fps": 24,
                     "num_frames": 121,

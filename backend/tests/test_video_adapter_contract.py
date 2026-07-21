@@ -70,7 +70,7 @@ def test_cosmos_adapter_uses_offline_inference_mode_and_json_sample_overrides(
         "model_mode": "image2video",
         "prompt": "A product rotates slowly on a studio pedestal.",
         "vision_path": str(source_image),
-        "resolution": 480,
+        "resolution": "480",
         "aspect_ratio": "16,9",
         "fps": 24,
         "num_frames": 121,
