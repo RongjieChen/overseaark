@@ -92,6 +92,8 @@ def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
 
     assert 'config.codecmodel_path = str(codec_path)' in adapter
     assert "override_config_path=config" in adapter
+    assert "codec_config.discriminator = None" in adapter
+    assert 'codec_config.use_scl_loss = False' in adapter
     assert codec["revision"] == "3c482a402a3c4cf33690a2c0f0a7d41afea6bd6a"
     assert codec["files"][0]["sha256"] == (
         "28c2518de3e3d5a2c7d9bca40a7ebc0644eb76c60b890970365325bdd8e9f099"

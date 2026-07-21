@@ -64,17 +64,37 @@ def main() -> None:
 
     try:
         import soundfile as sf
-        from nemo.collections.tts.models import MagpieTTSModel
+        from nemo.collections.tts.models import AudioCodecModel, MagpieTTSModel
     except Exception as exc:
         raise SystemExit("TTS adapter requires NVIDIA NeMo and soundfile installed in the TTS environment") from exc
 
     config = MagpieTTSModel.restore_from(str(model_path), return_config=True)
     config.codecmodel_path = str(codec_path)
-    model = MagpieTTSModel.restore_from(
-        str(model_path),
-        override_config_path=config,
-        map_location="cuda",
-    )
+    original_codec_restore = AudioCodecModel.restore_from
+
+    def restore_inference_codec(restore_path: str, *args: object, **kwargs: object) -> object:
+        """Prevent NeMo from constructing training-only codec discriminators."""
+        if kwargs.get("return_config"):
+            return original_codec_restore(restore_path, *args, **kwargs)
+        codec_config = kwargs.get("override_config_path")
+        if codec_config is None:
+            codec_config = original_codec_restore(restore_path, return_config=True)
+        codec_config.discriminator = None
+        if "use_scl_loss" in codec_config:
+            codec_config.use_scl_loss = False
+        kwargs["override_config_path"] = codec_config
+        kwargs["strict"] = False
+        return original_codec_restore(restore_path, *args, **kwargs)
+
+    AudioCodecModel.restore_from = restore_inference_codec
+    try:
+        model = MagpieTTSModel.restore_from(
+            str(model_path),
+            override_config_path=config,
+            map_location="cuda",
+        )
+    finally:
+        AudioCodecModel.restore_from = original_codec_restore
     import numpy as np
 
     language = str(payload.get("language", "en"))
