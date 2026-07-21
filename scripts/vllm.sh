@@ -80,8 +80,9 @@ PY
     python3 -m venv "$(dirname "$(dirname "$OVERSEAARK_VLLM_PYTHON")")"
   fi
   local pip="${OVERSEAARK_VLLM_PYTHON%/python}/pip"
-  "$pip" install --upgrade pip wheel setuptools
+  "$pip" install --index-url "$OVERSEAARK_PYPI_INDEX" --upgrade pip wheel setuptools
   "$pip" install \
+    --index-url "$OVERSEAARK_PYPI_INDEX" \
     --extra-index-url https://download.pytorch.org/whl/cu129 \
     "$VLLM_WHEEL_CACHE"
   vllm_install_ready || die "native vLLM installed but CUDA import verification failed"
