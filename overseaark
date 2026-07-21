@@ -16,7 +16,7 @@ Commands:
   stop                  Stop managed processes
   restart               Stop then start
   status                Show process, path, and model status
-  logs [backend|frontend|all]
+  logs [backend|frontend|llm|all]
                         Tail service logs
   doctor                Run non-destructive environment checks
   models verify         Verify model manifest and checksums

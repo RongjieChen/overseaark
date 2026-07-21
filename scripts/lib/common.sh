@@ -23,8 +23,12 @@ load_env() {
       OVERSEAARK_GITHUB_ASSET_PREFIX
       OVERSEAARK_ADAPTER_MODE OVERSEAARK_ALLOW_DEGRADED_VIDEO
       OVERSEAARK_ADAPTER_TIMEOUT OVERSEAARK_BENCH_TIMEOUT
-      OVERSEAARK_LLAMA_CLI OVERSEAARK_LLM_TOKENS OVERSEAARK_LLM_CONTEXT
-      OVERSEAARK_LLM_BATCH OVERSEAARK_LLM_UBATCH
+      OVERSEAARK_LLM_TOKENS OVERSEAARK_LLM_TIMEOUT
+      OVERSEAARK_DOCKER OVERSEAARK_DOCKERHUB_PREFIX
+      OVERSEAARK_VLLM_IMAGE_SOURCE OVERSEAARK_VLLM_IMAGE_LOCAL
+      OVERSEAARK_VLLM_CONTAINER OVERSEAARK_VLLM_PORT
+      OVERSEAARK_VLLM_STARTUP_TIMEOUT OVERSEAARK_VLLM_GPU_MEMORY_UTILIZATION
+      OVERSEAARK_VLLM_MAX_MODEL_LEN
       MODELSCOPE_ENDPOINT HF_ENDPOINT TRANSFORMERS_OFFLINE
       HF_HUB_OFFLINE HF_DATASETS_OFFLINE NO_PROXY no_proxy
     )
@@ -73,6 +77,15 @@ load_env() {
   export OVERSEAARK_PYPI_FILE_PREFIX="${OVERSEAARK_PYPI_FILE_PREFIX-https://mirrors.aliyun.com/pypi/}"
   export OVERSEAARK_GITHUB_GIT_PREFIX="${OVERSEAARK_GITHUB_GIT_PREFIX-https://gh-proxy.com/https://github.com/}"
   export OVERSEAARK_GITHUB_ASSET_PREFIX="${OVERSEAARK_GITHUB_ASSET_PREFIX-https://ghfast.top/}"
+  export OVERSEAARK_DOCKER="${OVERSEAARK_DOCKER:-docker}"
+  export OVERSEAARK_DOCKERHUB_PREFIX="${OVERSEAARK_DOCKERHUB_PREFIX-docker.1ms.run/}"
+  export OVERSEAARK_VLLM_IMAGE_SOURCE="${OVERSEAARK_VLLM_IMAGE_SOURCE:-vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089}"
+  export OVERSEAARK_VLLM_IMAGE_LOCAL="${OVERSEAARK_VLLM_IMAGE_LOCAL:-overseaark/vllm:qwen36-20260721}"
+  export OVERSEAARK_VLLM_CONTAINER="${OVERSEAARK_VLLM_CONTAINER:-overseaark-vllm}"
+  export OVERSEAARK_VLLM_PORT="${OVERSEAARK_VLLM_PORT:-8011}"
+  export OVERSEAARK_VLLM_STARTUP_TIMEOUT="${OVERSEAARK_VLLM_STARTUP_TIMEOUT:-900}"
+  export OVERSEAARK_VLLM_GPU_MEMORY_UTILIZATION="${OVERSEAARK_VLLM_GPU_MEMORY_UTILIZATION:-0.4}"
+  export OVERSEAARK_VLLM_MAX_MODEL_LEN="${OVERSEAARK_VLLM_MAX_MODEL_LEN:-32768}"
   export MODELSCOPE_ENDPOINT="${MODELSCOPE_ENDPOINT:-https://modelscope.cn}"
   export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 }
@@ -201,17 +214,7 @@ local_runtime_env() {
   export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
   export no_proxy="${no_proxy:-127.0.0.1,localhost}"
   if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
-    local default_llama_cli="/root/llama.cpp/build/bin/llama-cli"
-    if [[ ! -x "$default_llama_cli" && -x "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli" ]]; then
-      default_llama_cli="$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli"
-    fi
-    if [[ "${OVERSEAARK_LLAMA_CLI:-}" == "/root/llama.cpp/build/bin/llama-cli" ]] && \
-        [[ ! -x "$OVERSEAARK_LLAMA_CLI" ]] && \
-        [[ -x "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli" ]]; then
-      unset OVERSEAARK_LLAMA_CLI
-    fi
-    export OVERSEAARK_LLAMA_CLI="${OVERSEAARK_LLAMA_CLI:-$default_llama_cli}"
-    export OVERSEAARK_LLM_COMMAND="${OVERSEAARK_LLM_COMMAND:-$REPO_DIR/.venv-step3/bin/python $SCRIPT_DIR/adapters/llm_step.py}"
+    export OVERSEAARK_LLM_COMMAND="${OVERSEAARK_LLM_COMMAND:-/usr/bin/env python3 $SCRIPT_DIR/adapters/llm_step.py}"
     export OVERSEAARK_IMAGE_COMMAND="${OVERSEAARK_IMAGE_COMMAND:-$REPO_DIR/.venv-step1x/bin/python $SCRIPT_DIR/adapters/image_step1x.py}"
     export OVERSEAARK_VIDEO_COMMAND="${OVERSEAARK_VIDEO_COMMAND:-$REPO_DIR/vendor/cosmos-framework/.venv/bin/python $SCRIPT_DIR/adapters/video_cosmos3.py}"
     export OVERSEAARK_ASR_COMMAND="${OVERSEAARK_ASR_COMMAND:-$REPO_DIR/.venv-nemo/bin/python $SCRIPT_DIR/adapters/asr_nemo.py}"

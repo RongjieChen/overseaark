@@ -10,118 +10,98 @@
   },
   "models": [
     {
-      "id": "stepfun-step3-vl-10b-fp8",
-      "provider": "modelscope",
-      "source": "stepfun-ai/Step3-VL-10B-FP8",
-      "official_source": "stepfun-ai/Step3-VL-10B-FP8",
-      "revision": "48c39fd2e7d4f3280a44ed636f3e71cce334fda3",
-      "upstream_revision": "84e144cba3877fc2b18465a7aa3fbba17ab8f14a",
-      "local_dir": "stepfun/step3-vl-10b-fp8",
+      "id": "nvidia-qwen3.6-35b-a3b-nvfp4",
+      "provider": "huggingface",
+      "source": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+      "revision": "491c2f1ea524c639598bf8fa787a93fed5a6fbce",
+      "local_dir": "nvidia/qwen3.6-35b-a3b-nvfp4",
       "license": "Apache-2.0",
       "required": true,
       "allow_incomplete": false,
-      "notes": "Primary LLM/VLM. Official FP8 release is about 14 GB of weights and uses a dedicated Transformers 4.57 environment on DGX Spark.",
+      "notes": "Primary multimodal planner. NVIDIA ModelOpt NVFP4 checkpoint served by a pinned vLLM container using the official DGX Spark recipe.",
       "files": [
         {
-          "path": "added_tokens.json",
-          "size": 1298,
-          "sha256": "f96e868e18dbf8000e66087a52d594391ca818e39d80427ccbaa315280816580",
-          "required": true
-        },
-        {
           "path": "chat_template.jinja",
-          "size": 4700,
-          "sha256": "84ae90f45e8da12c4a108a267c595dcf3854de531e51738589ad59ac598e9841",
+          "size": 7764,
+          "sha256": "e84f32a23fdda27689f868aa4a1a5621f41133e51a48d7f3efcbea2839574259",
           "required": true
         },
         {
           "path": "config.json",
-          "size": 42020,
-          "sha256": "2589c76b62106592e100b57accf130bb5ba1a394cd268f4622ae1caf85038d18",
+          "size": 58110,
+          "sha256": "58aefa1c9eff7989f431d748f2ddec39446cb1fd2a69acc46e285c6a37b0cecc",
           "required": true
         },
         {
-          "path": "configuration_step_vl.py",
-          "size": 2506,
-          "sha256": "b099efd6f94d83ae5dcf163a0d96ba34022b139f70eddffc14b399113d428c96",
+          "path": "configuration.json",
+          "size": 58,
+          "sha256": "c1b09db419119513247e9b8b912c4b9897106c9b20c6cada7e107d993c5435eb",
           "required": true
         },
         {
           "path": "generation_config.json",
-          "size": 133,
-          "sha256": "160129cb5ec6517b7ee79c68f5d0e14baeee068bd8e544f9c0d8148cf94ddee3",
+          "size": 202,
+          "sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e",
           "required": true
         },
         {
-          "path": "model-00001.safetensors",
-          "size": 2777201176,
-          "sha256": "acd664d41b694d0ff05264859b848164b3f8c406564f2ea385d349e572f5e492",
+          "path": "hf_quant_config.json",
+          "size": 35085,
+          "sha256": "75fe7cc8d5836b58734e05ee67423a4ce91d602aaad45c8173a1b7597cd57663",
           "required": true
         },
         {
-          "path": "model-00002.safetensors",
-          "size": 2626244232,
-          "sha256": "c3a103f4c29fc339c491659087db0c851cfeb1e527f588987b402c11a41fc564",
+          "path": "model-00001-of-00003.safetensors",
+          "size": 10006877608,
+          "sha256": "07141c2db92e47bc08777132cd1a0323faf300eab3a7d7c111bc2bf075fda050",
           "required": true
         },
         {
-          "path": "model-00003.safetensors",
-          "size": 2584300216,
-          "sha256": "9e9d324afeedc2c4ae02467b35e0f5e7a689f92c5b9fcdaab96112c75a7e4aa3",
+          "path": "model-00002-of-00003.safetensors",
+          "size": 10003595752,
+          "sha256": "6dea9c759a0f941cf9e1cc1501216b0e107966a66c90425050e212efbd053f02",
           "required": true
         },
         {
-          "path": "model-00004.safetensors",
-          "size": 3818038200,
-          "sha256": "21d6144bbe26b9694adbeea9002bc1e1b93f03806b2c9caf8e81e4a9044014bd",
+          "path": "model-00003-of-00003.safetensors",
+          "size": 3413864960,
+          "sha256": "9758875fc55e49561165f4a44342b654c123c3e25c6811b34abb83553fb1a164",
           "required": true
         },
         {
-          "path": "model-00005.safetensors",
-          "size": 3254325832,
-          "sha256": "f710b66f541e8b838afab79e89b3e57eddaedb90e27bff1ca1420a418e01baf8",
+          "path": "model.safetensors.index.json",
+          "size": 13726227,
+          "sha256": "d67403a4e9793c0ba8a136baf14b3b76ec7b32c822267978084895e07ebd8a3e",
           "required": true
         },
         {
-          "path": "modeling_step_vl.py",
-          "size": 23263,
-          "sha256": "191a417f267bcc49bc9242f780ec5d049e6b80c425b61883ee367b864deec71f",
-          "required": true
-        },
-        {
-          "path": "processing_step3.py",
-          "size": 18272,
-          "sha256": "f50ad06c8c44115331f2c8ee932086f6efdea008e9e0376d8fd4502c0bb36339",
-          "required": true
-        },
-        {
-          "path": "processor_config.json",
-          "size": 82,
-          "sha256": "f1c72a87b483e58b0e459169b8512b6ca0a70aa425f7bc652d0879ef761a9b8c",
-          "required": true
-        },
-        {
-          "path": "special_tokens_map.json",
-          "size": 5602,
-          "sha256": "e27a4d322c6f8f5089dc38414faf14e4963a4072322e2fc1c07556c2c71ad035",
+          "path": "preprocessor_config.json",
+          "size": 390,
+          "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516",
           "required": true
         },
         {
           "path": "tokenizer.json",
-          "size": 11426994,
-          "sha256": "439885437ceee7205faa72b808b543bb3fcd2f3df788a959aa3604d07a8f5c75",
+          "size": 12807982,
+          "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
           "required": true
         },
         {
           "path": "tokenizer_config.json",
-          "size": 9967,
-          "sha256": "d4cf67300f4f66d8d215dcac69eafcf40eb82a3ca27409ba59a2e433661beefa",
+          "size": 16718,
+          "sha256": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b",
           "required": true
         },
         {
-          "path": "vision_encoder.py",
-          "size": 17764,
-          "sha256": "2c3be6cbe2f0b7787578350a7ee9c461e3edbfe0e6de3237f707a15784931edb",
+          "path": "video_preprocessor_config.json",
+          "size": 385,
+          "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13",
+          "required": true
+        },
+        {
+          "path": "vocab.json",
+          "size": 6722759,
+          "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003",
           "required": true
         }
       ]

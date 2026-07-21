@@ -49,32 +49,6 @@ raise SystemExit(0 if (include_dir / "Python.h").is_file() else 1)
 PY
 }
 
-install_llama_cpp() {
-  local revision="76f46ad29d61fd8c1401e8221842934bf62a6064"
-  local current_cli="${OVERSEAARK_LLAMA_CLI:-/root/llama.cpp/build/bin/llama-cli}"
-  if [[ -x "$current_cli" ]]; then
-    export OVERSEAARK_LLAMA_CLI="$current_cli"
-    log "llama-cli already available"
-    return 0
-  fi
-  have git && have cmake || die "git and cmake are required to build llama.cpp"
-  have nvcc || die "CUDA nvcc is required to build llama.cpp on DGX Spark"
-  local checkout="$REPO_DIR/vendor/llama.cpp"
-  mkdir -p "$REPO_DIR/vendor"
-  if [[ ! -d "$checkout/.git" ]]; then
-    git clone https://github.com/ggml-org/llama.cpp.git "$checkout"
-  fi
-  if ! git -C "$checkout" cat-file -e "${revision}^{commit}"; then
-    git -C "$checkout" fetch --depth 1 origin "$revision"
-  fi
-  git -C "$checkout" checkout --detach "$revision"
-  cmake -S "$checkout" -B "$checkout/build" \
-    -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release
-  cmake --build "$checkout/build" --config Release --target llama-cli -j "$(nproc)"
-  export OVERSEAARK_LLAMA_CLI="$checkout/build/bin/llama-cli"
-  [[ -x "$OVERSEAARK_LLAMA_CLI" ]] || die "llama.cpp build did not produce llama-cli"
-}
-
 node22_available() {
   have node && have npm && [[ "$(node -p 'process.versions.node.split(`.`)[0]' 2>/dev/null)" -ge 22 ]]
 }
@@ -197,17 +171,6 @@ create_adapter_envs() {
   python3 -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' || \
     die "heavy adapter environments require Python 3.12"
 
-  if [[ ! -d "$REPO_DIR/.venv-step3" ]]; then
-    python3 -m venv "$REPO_DIR/.venv-step3"
-  fi
-  "$REPO_DIR/.venv-step3/bin/pip" install --upgrade pip wheel setuptools
-  "$REPO_DIR/.venv-step3/bin/pip" install \
-    filelock "typing-extensions>=4.10" "sympy>=1.13.3" \
-    "networkx>=2.5.1" jinja2 "fsspec>=0.8.5" pillow numpy
-  "$REPO_DIR/.venv-step3/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchvision
-  "$REPO_DIR/.venv-step3/bin/pip" install \
-    "transformers==4.57.0" accelerate sentencepiece protobuf safetensors
-
   if [[ ! -d "$REPO_DIR/.venv-step1x" ]]; then
     python3 -m venv "$REPO_DIR/.venv-step1x"
   fi
@@ -273,7 +236,7 @@ if is_truthy "$OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP"; then
   create_python_env
   install_frontend
   if ! is_truthy "$OVERSEAARK_MOCK_MODE"; then
-    install_llama_cpp
+    bash "$SCRIPT_DIR/vllm.sh" image
   fi
   create_adapter_envs
 else

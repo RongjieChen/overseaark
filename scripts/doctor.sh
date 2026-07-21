@@ -38,6 +38,11 @@ check "model manifest exists" test -f "$REPO_DIR/model-manifest.lock.json"
 check_warn "python3 available" have python3
 check_warn "npm available for frontend builds" have npm
 check_warn "nvidia-smi available" have nvidia-smi
+if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
+  check "Docker available for pinned vLLM runtime" have "$OVERSEAARK_DOCKER"
+  check "pinned vLLM image present" \
+    "$OVERSEAARK_DOCKER" image inspect "$OVERSEAARK_VLLM_IMAGE_LOCAL"
+fi
 
 if have uname; then
   arch="$(uname -m)"
