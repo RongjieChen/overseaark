@@ -145,6 +145,7 @@ create_adapter_envs() {
     cd "$REPO_DIR/vendor/cosmos-framework"
     UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}" \
       UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-10}" \
+      UV_CONCURRENT_DOWNLOADS="${UV_CONCURRENT_DOWNLOADS:-4}" \
       "$REPO_DIR/.venv-cosmos/bin/uv" sync --group=cu130
   )
 
