@@ -211,7 +211,7 @@ local_runtime_env() {
       unset OVERSEAARK_LLAMA_CLI
     fi
     export OVERSEAARK_LLAMA_CLI="${OVERSEAARK_LLAMA_CLI:-$default_llama_cli}"
-    export OVERSEAARK_LLM_COMMAND="${OVERSEAARK_LLM_COMMAND:-/usr/bin/env python3 $SCRIPT_DIR/adapters/llm_step.py}"
+    export OVERSEAARK_LLM_COMMAND="${OVERSEAARK_LLM_COMMAND:-$REPO_DIR/.venv-step3/bin/python $SCRIPT_DIR/adapters/llm_step.py}"
     export OVERSEAARK_IMAGE_COMMAND="${OVERSEAARK_IMAGE_COMMAND:-$REPO_DIR/.venv-step1x/bin/python $SCRIPT_DIR/adapters/image_step1x.py}"
     export OVERSEAARK_VIDEO_COMMAND="${OVERSEAARK_VIDEO_COMMAND:-$REPO_DIR/vendor/cosmos-framework/.venv/bin/python $SCRIPT_DIR/adapters/video_cosmos3.py}"
     export OVERSEAARK_ASR_COMMAND="${OVERSEAARK_ASR_COMMAND:-$REPO_DIR/.venv-nemo/bin/python $SCRIPT_DIR/adapters/asr_nemo.py}"

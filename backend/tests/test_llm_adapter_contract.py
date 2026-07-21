@@ -3,16 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def test_llama_adapter_is_noninteractive_and_schema_validated() -> None:
+def test_step3_adapter_is_offline_multimodal_and_schema_validated() -> None:
     adapter = (
         Path(__file__).resolve().parents[2] / "scripts/adapters/llm_step.py"
     ).read_text(encoding="utf-8")
 
-    assert '"--no-conversation"' in adapter
-    assert '"--simple-io"' in adapter
-    assert '"--single-turn"' in adapter
-    assert '"--json-schema"' in adapter
-    assert '"--gpu-layers"' in adapter
+    assert 'MODEL_ID = "stepfun-ai/Step3-VL-10B-FP8"' in adapter
+    assert 'local_files_only=True' in adapter
+    assert 'trust_remote_code=True' in adapter
+    assert 'device_map="auto"' in adapter
+    assert '"type": "image"' in adapter
+    assert "Output JSON Schema" in adapter
     assert "_extract_task_result" in adapter
 
 

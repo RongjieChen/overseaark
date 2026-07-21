@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-LLM_MODEL = "stepfun-ai/Step-3.7-Flash-GGUF"
+LLM_MODEL = "stepfun-ai/Step3-VL-10B-FP8"
 IMAGE_MODEL = "stepfun-ai/Step1X-Edit-v1p2"
 VIDEO_MODEL = "nvidia/Cosmos3-Edge"
 NEMOTRON_ASR_MODEL = "nvidia/nemotron-3.5-asr-streaming-0.6b"

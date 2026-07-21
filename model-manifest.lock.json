@@ -10,6 +10,123 @@
   },
   "models": [
     {
+      "id": "stepfun-step3-vl-10b-fp8",
+      "provider": "modelscope",
+      "source": "stepfun-ai/Step3-VL-10B-FP8",
+      "official_source": "stepfun-ai/Step3-VL-10B-FP8",
+      "revision": "48c39fd2e7d4f3280a44ed636f3e71cce334fda3",
+      "upstream_revision": "84e144cba3877fc2b18465a7aa3fbba17ab8f14a",
+      "local_dir": "stepfun/step3-vl-10b-fp8",
+      "license": "Apache-2.0",
+      "required": true,
+      "allow_incomplete": false,
+      "notes": "Primary LLM/VLM. Official FP8 release is about 14 GB of weights and uses a dedicated Transformers 4.57 environment on DGX Spark.",
+      "files": [
+        {
+          "path": "added_tokens.json",
+          "size": 1298,
+          "sha256": "f96e868e18dbf8000e66087a52d594391ca818e39d80427ccbaa315280816580",
+          "required": true
+        },
+        {
+          "path": "chat_template.jinja",
+          "size": 4700,
+          "sha256": "84ae90f45e8da12c4a108a267c595dcf3854de531e51738589ad59ac598e9841",
+          "required": true
+        },
+        {
+          "path": "config.json",
+          "size": 42020,
+          "sha256": "2589c76b62106592e100b57accf130bb5ba1a394cd268f4622ae1caf85038d18",
+          "required": true
+        },
+        {
+          "path": "configuration_step_vl.py",
+          "size": 2506,
+          "sha256": "b099efd6f94d83ae5dcf163a0d96ba34022b139f70eddffc14b399113d428c96",
+          "required": true
+        },
+        {
+          "path": "generation_config.json",
+          "size": 133,
+          "sha256": "160129cb5ec6517b7ee79c68f5d0e14baeee068bd8e544f9c0d8148cf94ddee3",
+          "required": true
+        },
+        {
+          "path": "model-00001.safetensors",
+          "size": 2777201176,
+          "sha256": "acd664d41b694d0ff05264859b848164b3f8c406564f2ea385d349e572f5e492",
+          "required": true
+        },
+        {
+          "path": "model-00002.safetensors",
+          "size": 2626244232,
+          "sha256": "c3a103f4c29fc339c491659087db0c851cfeb1e527f588987b402c11a41fc564",
+          "required": true
+        },
+        {
+          "path": "model-00003.safetensors",
+          "size": 2584300216,
+          "sha256": "9e9d324afeedc2c4ae02467b35e0f5e7a689f92c5b9fcdaab96112c75a7e4aa3",
+          "required": true
+        },
+        {
+          "path": "model-00004.safetensors",
+          "size": 3818038200,
+          "sha256": "21d6144bbe26b9694adbeea9002bc1e1b93f03806b2c9caf8e81e4a9044014bd",
+          "required": true
+        },
+        {
+          "path": "model-00005.safetensors",
+          "size": 3254325832,
+          "sha256": "f710b66f541e8b838afab79e89b3e57eddaedb90e27bff1ca1420a418e01baf8",
+          "required": true
+        },
+        {
+          "path": "modeling_step_vl.py",
+          "size": 23263,
+          "sha256": "191a417f267bcc49bc9242f780ec5d049e6b80c425b61883ee367b864deec71f",
+          "required": true
+        },
+        {
+          "path": "processing_step3.py",
+          "size": 18272,
+          "sha256": "f50ad06c8c44115331f2c8ee932086f6efdea008e9e0376d8fd4502c0bb36339",
+          "required": true
+        },
+        {
+          "path": "processor_config.json",
+          "size": 82,
+          "sha256": "f1c72a87b483e58b0e459169b8512b6ca0a70aa425f7bc652d0879ef761a9b8c",
+          "required": true
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 5602,
+          "sha256": "e27a4d322c6f8f5089dc38414faf14e4963a4072322e2fc1c07556c2c71ad035",
+          "required": true
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 11426994,
+          "sha256": "439885437ceee7205faa72b808b543bb3fcd2f3df788a959aa3604d07a8f5c75",
+          "required": true
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 9967,
+          "sha256": "d4cf67300f4f66d8d215dcac69eafcf40eb82a3ca27409ba59a2e433661beefa",
+          "required": true
+        },
+        {
+          "path": "vision_encoder.py",
+          "size": 17764,
+          "sha256": "2c3be6cbe2f0b7787578350a7ee9c461e3edbfe0e6de3237f707a15784931edb",
+          "required": true
+        }
+      ]
+    },
+    {
       "id": "stepfun-step-3.7-flash-gguf-q3_k_m",
       "provider": "huggingface",
       "source": "stepfun-ai/Step-3.7-Flash-GGUF",
@@ -17,7 +134,7 @@
       "local_dir": "stepfun/step-3.7-flash",
       "license": "Apache-2.0",
       "adopt_from": "/root/models/step-3.7-flash",
-      "required": true,
+      "required": false,
       "allow_incomplete": false,
       "notes": "Q3_K_M shard 2 must be complete; historical incomplete shard size must not pass verification.",
       "files": [

@@ -197,6 +197,17 @@ create_adapter_envs() {
   python3 -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' || \
     die "heavy adapter environments require Python 3.12"
 
+  if [[ ! -d "$REPO_DIR/.venv-step3" ]]; then
+    python3 -m venv "$REPO_DIR/.venv-step3"
+  fi
+  "$REPO_DIR/.venv-step3/bin/pip" install --upgrade pip wheel setuptools
+  "$REPO_DIR/.venv-step3/bin/pip" install \
+    filelock "typing-extensions>=4.10" "sympy>=1.13.3" \
+    "networkx>=2.5.1" jinja2 "fsspec>=0.8.5" pillow numpy
+  "$REPO_DIR/.venv-step3/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchvision
+  "$REPO_DIR/.venv-step3/bin/pip" install \
+    "transformers==4.57.0" accelerate sentencepiece protobuf safetensors
+
   if [[ ! -d "$REPO_DIR/.venv-step1x" ]]; then
     python3 -m venv "$REPO_DIR/.venv-step1x"
   fi

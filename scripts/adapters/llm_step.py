@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from pathlib import Path
+from typing import Any
 
 from adapter_common import cuda_cleanup, models_root, read_payload, require_path, write_result
 
 
+MODEL_ID = "stepfun-ai/Step3-VL-10B-FP8"
 STRING_ARRAY = {"type": "array", "items": {"type": "string"}}
 TASK_SCHEMAS = {
     "market_positioning": {
@@ -116,75 +117,95 @@ def _extract_task_result(text: str, task: str) -> dict[str, object]:
         if required <= candidate.keys():
             return candidate
     raise SystemExit(
-        f"llama-cli returned no JSON object matching {task!r} required keys: "
+        f"{MODEL_ID} returned no JSON object matching {task!r} required keys: "
         f"{', '.join(sorted(required))}"
     )
 
 
-def main() -> None:
-    payload = read_payload()
-    model_dir = models_root() / "stepfun/step-3.7-flash"
-    shard = require_path(
-        model_dir / "Q3_K_M/Step-3.7-flash-Q3_K_M-00001-of-00003.gguf",
-        "Step-3.7 Flash Q3_K_M shard 1",
-    )
-    llama_cli = os.environ.get("OVERSEAARK_LLAMA_CLI", "/root/llama.cpp/build/bin/llama-cli")
-    require_path(__import__("pathlib").Path(llama_cli), "llama-cli")
+def _load_runtime(model_dir: Path) -> tuple[Any, Any]:
+    from transformers import AutoModelForCausalLM, AutoProcessor
 
-    task = payload.pop("task", "general")
-    default_schema = {
-        "type": "object",
-        "properties": {"text": {"type": "string"}},
-        "required": ["text"],
-        "additionalProperties": False,
+    key_mapping = {
+        "^vision_model": "model.vision_model",
+        r"^model(?!\.(language_model|vision_model))": "model.language_model",
+        "vit_large_projector": "model.vit_large_projector",
     }
-    schema = TASK_SCHEMAS.get(task, default_schema)
+    processor = AutoProcessor.from_pretrained(
+        model_dir,
+        trust_remote_code=True,
+        local_files_only=True,
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir,
+        trust_remote_code=True,
+        local_files_only=True,
+        device_map="auto",
+        torch_dtype="auto",
+        key_mapping=key_mapping,
+    ).eval()
+    return processor, model
+
+
+def _build_messages(payload: dict[str, Any], task: str, schema: dict[str, Any]) -> list[dict[str, Any]]:
+    image_path = payload.get("product_image_path")
+    payload_for_prompt = dict(payload)
+    payload_for_prompt.pop("product_image_path", None)
     prompt = (
-        "You are OverseaArk's local offline planning model. Return only valid JSON.\n"
+        "You are OverseaArk's local offline cross-border marketing planner. "
+        "Do not reveal chain-of-thought. Return one JSON object and no Markdown.\n"
         f"Task: {task}\n"
         "Required output languages: "
         f"{json.dumps(payload.get('languages', []), ensure_ascii=False)}\n"
-        f"Input JSON: {json.dumps(payload, ensure_ascii=False)}\n"
+        f"Output JSON Schema: {json.dumps(schema, ensure_ascii=False)}\n"
+        f"Input JSON: {json.dumps(payload_for_prompt, ensure_ascii=False)}"
     )
-    cmd = [
-        llama_cli,
-        "-m",
-        str(shard),
-        "-p",
-        prompt,
-        "-n",
-        os.environ.get("OVERSEAARK_LLM_TOKENS", "512"),
-        "--ctx-size",
-        os.environ.get("OVERSEAARK_LLM_CONTEXT", "2048"),
-        "--batch-size",
-        os.environ.get("OVERSEAARK_LLM_BATCH", "256"),
-        "--ubatch-size",
-        os.environ.get("OVERSEAARK_LLM_UBATCH", "128"),
-        "--gpu-layers",
-        "all",
-        "--flash-attn",
-        "on",
-        "--json-schema",
-        json.dumps(schema),
-        "--no-conversation",
-        "--simple-io",
-        "--single-turn",
-        "--temp",
-        "0.2",
-        "--no-display-prompt",
-    ]
-    image_path = payload.get("product_image_path")
+    content: list[dict[str, Any]] = []
     if image_path:
-        image = require_path(Path(str(image_path)), "campaign product image")
-        mmproj = require_path(model_dir / "mmproj-step3.7-flash-f16.gguf", "Step-3.7 mmproj")
-        cmd.extend(["--mmproj", str(mmproj), "--image", str(image)])
-    proc = subprocess.run(
-        cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+        image = require_path(Path(str(image_path)).resolve(), "campaign product image")
+        content.append({"type": "image", "url": str(image)})
+    content.append({"type": "text", "text": prompt})
+    return [{"role": "user", "content": content}]
+
+
+def main() -> None:
+    import torch
+
+    payload = read_payload()
+    task = str(payload.pop("task", "general"))
+    schema = TASK_SCHEMAS.get(
+        task,
+        {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+            "additionalProperties": False,
+        },
     )
-    if proc.returncode != 0:
-        raise SystemExit(proc.stderr.strip() or "llama-cli failed")
-    result = _extract_task_result(proc.stdout, task)
-    result.setdefault("model", "stepfun-ai/Step-3.7-Flash-GGUF")
+    model_dir = require_path(
+        models_root() / "stepfun/step3-vl-10b-fp8",
+        "Step3-VL-10B-FP8 model directory",
+    )
+    processor, model = _load_runtime(model_dir)
+    messages = _build_messages(payload, task, schema)
+    inputs = processor.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        tokenize=True,
+        return_dict=True,
+        return_tensors="pt",
+    ).to(model.device)
+    with torch.inference_mode():
+        generated = model.generate(
+            **inputs,
+            max_new_tokens=int(os.environ.get("OVERSEAARK_LLM_TOKENS", "512")),
+            do_sample=False,
+        )
+    decoded = processor.decode(
+        generated[0, inputs["input_ids"].shape[-1] :],
+        skip_special_tokens=True,
+    )
+    result = _extract_task_result(decoded, task)
+    result.setdefault("model", MODEL_ID)
     write_result(result)
 
 
