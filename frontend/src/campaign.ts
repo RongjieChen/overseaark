@@ -90,6 +90,10 @@ export function validateProductImage(file: File | null): string | null {
   return null;
 }
 
+export function selectCampaignId(queryValue: string | null, storedValue: string | null): string {
+  return queryValue?.trim() || storedValue?.trim() || "";
+}
+
 export function statusTone(status: CampaignStatus | StageState): "neutral" | "good" | "warn" | "bad" | "active" {
   if (status === "complete" || status === "skipped") {
     return "good";

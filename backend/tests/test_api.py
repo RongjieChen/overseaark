@@ -140,6 +140,7 @@ async def test_health_models_and_uploaded_audio_transcription(tmp_path: Path) ->
 
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
+    assert health.json()["model_status"] == "ready"
     assert models.status_code == 200
     assert models.json() == {
         "llm": "ggml-org/Qwen3.6-35B-A3B-GGUF",

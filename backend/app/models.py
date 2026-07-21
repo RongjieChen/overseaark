@@ -116,3 +116,4 @@ class ModelInfo(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     storage_path: str
+    model_status: str = "ready"

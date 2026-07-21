@@ -289,15 +289,16 @@ Reports are written under `OVERSEAARK_DATA_DIR/benchmarks/`.
 
 ## DGX E2E Evidence
 
-The documentation handoff included three successful real E2E results:
+The documentation handoff included four successful real E2E results:
 
 | Run | Result |
 | --- | --- |
 | Run 1 | Completed after an intermediate fix and rerun of the affected stage. |
 | Run 2 | Completed uninterrupted in 10m34s; Japanese ASR threshold retry was exercised. |
 | Run 3 | Completed uninterrupted in 10m45s; audio similarity zh `0.833`, en `1.0`, ja `1.0`; 854x480 H.264/AAC output and zip integrity verified. |
+| Run 4 | Completed all six stages on first attempts in 590.003s; audio similarity zh `0.933`, en `1.0`, ja `1.0`; 854x480 H.264/AAC output and 23-member zip integrity verified. |
 
-Treat these as DGX E2E status notes, not a replacement for the benchmark JSON artifacts under `OVERSEAARK_DATA_DIR/benchmarks/`. Runs 2 and 3 are successful functional evidence but do not pass the <=10 minute performance target.
+Treat these as DGX E2E status notes, not a replacement for the benchmark JSON artifacts under `OVERSEAARK_DATA_DIR/benchmarks/`. Run 4 passes the <=10-minute target; the stricter three-consecutive-run acceptance criterion still requires two additional qualifying runs.
 
 ## Troubleshooting
 

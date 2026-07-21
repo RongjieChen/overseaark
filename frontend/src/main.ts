@@ -4,6 +4,7 @@ import {
   createEmptyCampaign,
   formatDateTime,
   mergeCampaignEvent,
+  selectCampaignId,
   statusTone,
   validateDescription,
   validateProductImage,
@@ -12,6 +13,7 @@ import type { CampaignDetail, CampaignFormData, CampaignStageKey, HealthStatus, 
 import "./styles.css";
 
 const api = new ApiClient();
+const LAST_CAMPAIGN_KEY = "overseaark.lastCampaignId";
 const state: {
   form: CampaignFormData;
   campaign: CampaignDetail;
@@ -53,7 +55,12 @@ if (!appRoot) {
 const app = appRoot;
 
 render();
-void refreshHealth();
+void initializeApp();
+
+async function initializeApp(): Promise<void> {
+  await refreshHealth();
+  await restoreCampaignFromBrowserState();
+}
 
 function render(): void {
   app.innerHTML = `
@@ -348,6 +355,39 @@ async function refreshHealth(): Promise<void> {
   render();
 }
 
+async function restoreCampaignFromBrowserState(): Promise<void> {
+  const queryValue = new URLSearchParams(window.location.search).get("campaign");
+  const storedValue = window.localStorage.getItem(LAST_CAMPAIGN_KEY);
+  const campaignId = selectCampaignId(queryValue, storedValue);
+  if (!campaignId) {
+    return;
+  }
+
+  try {
+    state.campaign = await api.getCampaign(campaignId);
+    persistCampaignId(campaignId);
+    state.streamMessage = `Restored campaign ${campaignId}.`;
+    if (["queued", "running"].includes(state.campaign.status)) {
+      openProgressStream();
+    }
+  } catch (errorResponse) {
+    if (!queryValue?.trim()) {
+      window.localStorage.removeItem(LAST_CAMPAIGN_KEY);
+    }
+    state.streamMessage = errorResponse instanceof Error
+      ? `Stored campaign could not be restored: ${errorResponse.message}`
+      : "Stored campaign could not be restored.";
+  }
+  render();
+}
+
+function persistCampaignId(campaignId: string): void {
+  window.localStorage.setItem(LAST_CAMPAIGN_KEY, campaignId);
+  const url = new URL(window.location.href);
+  url.searchParams.set("campaign", campaignId);
+  window.history.replaceState({}, "", url);
+}
+
 async function createCampaign(): Promise<void> {
   const error = validateDescription(state.form.description);
   const imageError = validateProductImage(state.form.imageFile);
@@ -373,6 +413,7 @@ async function createCampaign(): Promise<void> {
       sequence: response.sequence ?? 0,
       summary: response.message,
     };
+    persistCampaignId(response.id);
     state.streamMessage = "Campaign created. Opening progress stream...";
     openProgressStream();
   } catch (errorResponse) {
@@ -482,10 +523,10 @@ function openProgressStream(): void {
     (event) => {
       state.campaign = mergeCampaignEvent(state.campaign, event);
       state.streamMessage = `Progress update received at sequence ${state.campaign.sequence}.`;
-      if (["complete", "failed", "cancelled"].includes(state.campaign.status)) {
+      if (isTerminalStatus()) {
         closeStream();
       }
-      scheduleDetailRefresh(["complete", "failed", "cancelled"].includes(state.campaign.status) ? 0 : 500);
+      scheduleDetailRefresh(isTerminalStatus() ? 0 : 500);
       render();
     },
     (message) => {
@@ -529,6 +570,10 @@ async function refreshDetailFromBackend(): Promise<void> {
 function closeStream(): void {
   state.stream?.close();
   state.stream = null;
+}
+
+function isTerminalStatus(): boolean {
+  return ["complete", "partial", "failed", "cancelled"].includes(state.campaign.status);
 }
 
 function addWarning(message: string): void {

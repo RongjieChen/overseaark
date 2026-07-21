@@ -15,6 +15,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .cache/
+.omx/
 *.egg-info/
 *.sqlite*
 *.db

@@ -42,8 +42,9 @@ The latest status supplied for this documentation pass:
 | Run 1 | Completed | Completed after an intermediate fix and rerun of the affected stage. |
 | Run 2 | Completed | Uninterrupted end-to-end completion in 10m34s; Japanese ASR threshold retry was exercised. |
 | Run 3 | Completed | Uninterrupted completion in 10m45s; real 854x480 Cosmos output, valid zip, and ASR similarity zh `0.833`, en `1.0`, ja `1.0`. |
+| Run 4 | Completed | All six stages succeeded on first attempts in 590.003s (9m50s); real 854x480 output, valid 23-member zip, and ASR similarity zh `0.933`, en `1.0`, ja `1.0`. |
 
-All three runs reached `completed`, but runs 2 and 3 exceeded the <=10 minute target. Treat that target as an open performance gap until a later measured run passes it.
+All four runs reached `completed`. Run 4 provides the first measured <=10-minute pass after the 6-step Step1X change. The stricter acceptance criterion of three consecutive <=10-minute campaigns remains open until two additional qualifying runs are captured.
 
 ## DGX Spark Fit
 
@@ -84,11 +85,11 @@ Use:
 - "Model stack is pinned by manifest with size and SHA-256 verification."
 - "Step1X defaults to 6 steps and Cosmos3-Edge defaults to 28 steps for measured demo latency."
 - "Nemotron ASR and Magpie TTS provide a measured audio QC loop."
-- "Three real DGX E2E runs completed; run 3 completed in 10m45s with a valid 480p model video and auditable export."
+- "Four real DGX E2E runs completed; run 4 completed all stages in 9m50s with a valid 480p model video and auditable export."
 
 Avoid:
 
-- "Every run met the <=10 minute target"; the supplied evidence does not support that claim.
+- "Three consecutive runs met the <=10 minute target"; the current evidence establishes one qualifying run.
 - "Cloud-free production run" unless the specific run was audited with network controls.
 - "Model quality fully validated" without benchmark logs or review notes.
 - "Cosmos fallback is final output" when the adapter produced a degraded ffmpeg fallback.

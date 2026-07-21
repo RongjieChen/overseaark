@@ -6,6 +6,7 @@ import {
   mergeCampaignEvent,
   normalizeCampaignStatus,
   normalizeStageState,
+  selectCampaignId,
   validateDescription,
   validateProductImage,
 } from "../src/campaign.js";
@@ -73,4 +74,10 @@ test("requires JPG, PNG, or WebP product image up to 20MB", () => {
   assert.equal(validateProductImage(new File(["x"], "bad.gif", { type: "image/gif" })), "Product image must be JPG, PNG, or WebP.");
   assert.equal(validateProductImage(oversized), "Product image must be 20MB or smaller.");
   assert.equal(validateProductImage(new File(["x"], "good.webp", { type: "image/webp" })), null);
+});
+
+test("restores a campaign from a deep link before local browser state", () => {
+  assert.equal(selectCampaignId("  campaign-from-url  ", "campaign-from-storage"), "campaign-from-url");
+  assert.equal(selectCampaignId(null, "  campaign-from-storage  "), "campaign-from-storage");
+  assert.equal(selectCampaignId("  ", "  "), "");
 });

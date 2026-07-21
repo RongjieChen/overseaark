@@ -10,7 +10,7 @@ The implemented demo flow accepts one product image and product description, run
 - Implemented command adapters: Qwen3.6 LLM/VLM through localhost `llama-server`, Step1X image generation, Cosmos3-Edge video generation, Nemotron ASR, and Magpie TTS.
 - Implemented safety boundary: localhost-only serving, no remote model command URLs, offline Hugging Face runtime flags, ModelManager serialization, and one heavy GPU adapter active at a time.
 - Not implemented: Docker, ComfyUI, OpenClaw, Ollama, StepFun cloud APIs, NVIDIA hosted inference APIs, or public service binding.
-- DGX E2E evidence: three campaigns reached `completed`. Run 1 recovered through a stage rerun; run 2 completed uninterrupted in 10m34s and exercised the Japanese ASR threshold retry; run 3 completed uninterrupted in 10m45s with real Step1X, Cosmos3-Edge, Magpie TTS, and Nemotron ASR outputs. Run 3 audio similarity was zh `0.833`, en `1.0`, ja `1.0`; its 854x480 H.264/AAC video and export zip passed structural verification. The current <=10 minute target therefore remains a measured performance gap, not a claimed pass.
+- DGX E2E evidence: four campaigns reached `completed`. Run 1 recovered through a stage rerun; runs 2 and 3 completed uninterrupted in 10m34s and 10m45s. After moving the measured Step1X demo default from 8 to 6 steps, run 4 completed all six stages on first attempts in `590.003s` (9m50s). Run 4 used real Step1X, Cosmos3-Edge, Magpie TTS, and Nemotron ASR outputs; audio similarity was zh `0.933`, en `1.0`, ja `1.0`, and its 854x480 H.264/AAC video plus 23-member export zip passed structural verification. One measured sub-10-minute pass is established; three consecutive sub-10-minute runs remain the acceptance target.
 
 ## Repository Layout
 
