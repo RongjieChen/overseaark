@@ -116,6 +116,12 @@ sync_models() {
     return 0
   fi
 
+  # `.env` deliberately enables offline inference. Model acquisition is the
+  # only lifecycle operation allowed to override those guards temporarily.
+  export HF_HUB_OFFLINE=0
+  export TRANSFORMERS_OFFLINE=0
+  export HF_DATASETS_OFFLINE=0
+
   while IFS=$'\t' read -r id provider source revision local_dir required adopt_from includes; do
     if [[ "$required" != "1" ]] && ! is_truthy "$OVERSEAARK_SYNC_OPTIONAL_MODELS"; then
       warn "skipping optional model $id; set OVERSEAARK_SYNC_OPTIONAL_MODELS=1 to fetch it"
