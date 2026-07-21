@@ -5,9 +5,11 @@ import base64
 import json
 import mimetypes
 import os
-import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from adapter_common import models_root, read_payload, require_path, write_result
 
@@ -157,44 +159,37 @@ def _messages(payload: dict[str, Any], task: str, schema: dict[str, Any]) -> lis
     ]
 
 
-def _invoke_vllm(request: dict[str, Any]) -> dict[str, Any]:
-    docker = os.environ.get("OVERSEAARK_DOCKER", "docker")
-    container = os.environ.get("OVERSEAARK_VLLM_CONTAINER", "overseaark-vllm")
-    port = int(os.environ.get("OVERSEAARK_VLLM_PORT", "8011"))
-    client = r'''
-import json
-import sys
-import urllib.error
-import urllib.request
+def _local_vllm_endpoint() -> str:
+    base_url = os.environ.get("OVERSEAARK_LLM_BASE_URL", "http://127.0.0.1:8011")
+    parsed = urlsplit(base_url)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
+        raise SystemExit(f"refusing non-local vLLM endpoint: {base_url}")
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise SystemExit(f"invalid local vLLM base URL: {base_url}")
+    return f"{base_url.rstrip('/')}/v1/chat/completions"
 
-payload = json.load(sys.stdin)
-request = urllib.request.Request(
-    "http://127.0.0.1:__PORT__/v1/chat/completions",
-    data=json.dumps(payload).encode("utf-8"),
-    headers={"Content-Type": "application/json"},
-)
-try:
-    with urllib.request.urlopen(request, timeout=600) as response:
-        sys.stdout.write(response.read().decode("utf-8"))
-except urllib.error.HTTPError as exc:
-    sys.stderr.write(exc.read().decode("utf-8", errors="replace"))
-    raise
-'''.replace("__PORT__", str(port))
-    proc = subprocess.run(
-        [docker, "exec", "-i", container, "python3", "-c", client],
-        input=json.dumps(request, ensure_ascii=False),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=int(os.environ.get("OVERSEAARK_LLM_TIMEOUT", "600")),
-        check=False,
+
+def _invoke_vllm(payload: dict[str, Any]) -> dict[str, Any]:
+    request = urllib.request.Request(
+        _local_vllm_endpoint(),
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
-    if proc.returncode != 0:
-        raise SystemExit(proc.stderr.strip() or "local vLLM request failed")
-    response = json.loads(proc.stdout)
-    if not isinstance(response, dict):
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=int(os.environ.get("OVERSEAARK_LLM_TIMEOUT", "600")),
+        ) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"local vLLM HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"local vLLM request failed: {exc.reason}") from exc
+    if not isinstance(result, dict):
         raise SystemExit("local vLLM returned a non-object response")
-    return response
+    return result
 
 
 def main() -> None:

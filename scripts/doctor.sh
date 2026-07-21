@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+source "$SCRIPT_DIR/vllm.sh"
 
 ensure_dirs
 failures=0
@@ -39,9 +40,8 @@ check_warn "python3 available" have python3
 check_warn "npm available for frontend builds" have npm
 check_warn "nvidia-smi available" have nvidia-smi
 if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
-  check "Docker available for pinned vLLM runtime" have "$OVERSEAARK_DOCKER"
-  check "pinned vLLM image present" \
-    "$OVERSEAARK_DOCKER" image inspect "$OVERSEAARK_VLLM_IMAGE_LOCAL"
+  check "native vLLM $OVERSEAARK_VLLM_VERSION with CUDA available" vllm_install_ready
+  check "native vLLM model directory present" test -f "$OVERSEAARK_VLLM_MODEL_DIR/config.json"
 fi
 
 if have uname; then

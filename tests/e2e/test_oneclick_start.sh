@@ -143,24 +143,17 @@ if remove_invalid_model_files path-traversal "$fake_model_root/example" >/dev/nu
 fi
 [[ -f "$tmp_dir/victim.bin" ]]
 
-# Host variance: keep a valid root install, but replace a stale root default
-# with a first-run repo-local llama build.
-original_repo_dir="$REPO_DIR"
-REPO_DIR="$tmp_dir/fresh-repo"
-mkdir -p "$REPO_DIR/vendor/llama.cpp/build/bin"
-printf '#!/usr/bin/env bash\n' > "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli"
-chmod +x "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli"
-OVERSEAARK_LLAMA_CLI=/root/llama.cpp/build/bin/llama-cli
-OVERSEAARK_ADAPTER_MODE=command
-local_runtime_env
-if [[ -x /root/llama.cpp/build/bin/llama-cli ]]; then
-  [[ "$OVERSEAARK_LLAMA_CLI" == "/root/llama.cpp/build/bin/llama-cli" ]]
-else
-  [[ "$OVERSEAARK_LLAMA_CLI" == "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli" ]]
-fi
-REPO_DIR="$original_repo_dir"
-OVERSEAARK_ADAPTER_MODE=mock
-unset OVERSEAARK_LLAMA_CLI
+# Native vLLM command must use only the locked local model and loopback API.
+OVERSEAARK_VLLM_BIN="$tmp_dir/fake-vllm/bin/vllm"
+OVERSEAARK_VLLM_MODEL_DIR="$tmp_dir/models/nvidia/qwen3.6-35b-a3b-nvfp4"
+OVERSEAARK_VLLM_PORT=18011
+native_command="$(vllm_command)"
+[[ "$native_command" == *"serve"* ]]
+[[ "$native_command" == *"127.0.0.1"* ]]
+[[ "$native_command" == *"--quantization modelopt"* ]]
+[[ "$native_command" == *"--moe-backend marlin"* ]]
+[[ "$native_command" == *"HF_HUB_OFFLINE=1"* ]]
+[[ "$native_command" != *"docker"* ]]
 
 # Fault: malformed startup configuration must fail before any process action.
 if (OVERSEAARK_STARTUP_TIMEOUT=invalid; validate_startup_configuration) >/dev/null 2>&1; then
@@ -171,6 +164,38 @@ if (OVERSEAARK_BACKEND_PORT=70000; validate_startup_configuration) >/dev/null 2>
   echo "out-of-range backend port unexpectedly passed validation" >&2
   exit 1
 fi
+if (OVERSEAARK_VLLM_STARTUP_TIMEOUT=invalid; validate_startup_configuration) >/dev/null 2>&1; then
+  echo "malformed LLM startup timeout unexpectedly passed validation" >&2
+  exit 1
+fi
+if (OVERSEAARK_VLLM_PORT=70000; validate_startup_configuration) >/dev/null 2>&1; then
+  echo "out-of-range LLM port unexpectedly passed validation" >&2
+  exit 1
+fi
+if (OVERSEAARK_ADAPTER_MODE=command OVERSEAARK_LLM_BASE_URL=https://example.invalid; validate_offline_runtime) >/dev/null 2>&1; then
+  echo "remote LLM server URL unexpectedly passed offline runtime validation" >&2
+  exit 1
+fi
+
+# Command-mode startup must launch the native vLLM process. Heavy dependencies
+# are stubbed so this remains a no-download regression test.
+: > "$STUB_STATE_DIR/native-start-calls"
+ensure_runtime_dependencies() { printf 'runtime\n' >> "$STUB_STATE_DIR/native-start-calls"; }
+ensure_models() { printf 'models\n' >> "$STUB_STATE_DIR/native-start-calls"; }
+validate_offline_runtime() { printf 'offline\n' >> "$STUB_STATE_DIR/native-start-calls"; }
+backend_cmd() { printf 'true'; }
+frontend_cmd() { printf 'true'; }
+start_one() { printf 'start-one:%s\n' "$1" >> "$STUB_STATE_DIR/native-start-calls"; }
+wait_for_backend() { printf 'backend-ready\n' >> "$STUB_STATE_DIR/native-start-calls"; }
+start_vllm() {
+  printf 'start-vllm\n' >> "$STUB_STATE_DIR/native-start-calls"
+}
+OVERSEAARK_ADAPTER_MODE=command
+OVERSEAARK_MOCK_MODE=0
+OVERSEAARK_HOST=127.0.0.1
+start_all
+grep -qx 'start-vllm' "$STUB_STATE_DIR/native-start-calls"
+OVERSEAARK_ADAPTER_MODE=mock
 
 # Fault: hosts without flock still need an exclusive, stale-recoverable lock.
 have() {

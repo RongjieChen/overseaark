@@ -18,7 +18,7 @@
       "license": "Apache-2.0",
       "required": true,
       "allow_incomplete": false,
-      "notes": "Primary multimodal planner. NVIDIA ModelOpt NVFP4 checkpoint served by a pinned vLLM container using the official DGX Spark recipe.",
+      "notes": "Primary multimodal planner. NVIDIA ModelOpt NVFP4 checkpoint served by the pinned native aarch64 CUDA vLLM runtime using NVIDIA's DGX Spark settings; no container runtime is used.",
       "files": [
         {
           "path": "chat_template.jinja",

@@ -81,8 +81,7 @@ runtime_dependencies_ready() {
 
   have ffmpeg || return 1
   local_runtime_env
-  have "$OVERSEAARK_DOCKER" || return 1
-  vllm_image_present || return 1
+  vllm_install_ready || return 1
   command_program "$OVERSEAARK_LLM_COMMAND" >/dev/null || return 1
   python_command_imports "$OVERSEAARK_IMAGE_COMMAND" \
     'import torch, PIL; from diffusers import Step1XEditPipelineV1P2' || return 1
@@ -236,7 +235,7 @@ start_all() {
       [[ -n "${!var:-}" ]] || die "command mode requires $var"
     done
     validate_offline_runtime
-    start_vllm || die "vLLM startup failed; inspect ./overseaark logs llm"
+    start_vllm || die "native vLLM startup failed; inspect ./overseaark logs llm"
   else
     export OVERSEAARK_ADAPTER_MODE=mock
     export OVERSEAARK_MOCK_MODE=1
@@ -262,7 +261,7 @@ start_all() {
 stop_all() {
   stop_one frontend
   stop_one backend
-  if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]] && have "$OVERSEAARK_DOCKER"; then
+  if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
     stop_vllm
   fi
 }
@@ -275,7 +274,8 @@ show_logs() {
       exec tail -n 80 -f "$OVERSEAARK_LOG_DIR/$target.log"
       ;;
     llm)
-      exec "$OVERSEAARK_DOCKER" logs --tail 120 -f "$OVERSEAARK_VLLM_CONTAINER"
+      touch "$OVERSEAARK_LOG_DIR/llm.log"
+      exec tail -n 120 -f "$OVERSEAARK_LOG_DIR/llm.log"
       ;;
     all)
       touch "$OVERSEAARK_LOG_DIR/backend.log" "$OVERSEAARK_LOG_DIR/frontend.log"
@@ -299,7 +299,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       printf 'data       %s\n' "$OVERSEAARK_DATA_DIR"
       printf 'bind       %s:%s\n' "$OVERSEAARK_HOST" "$OVERSEAARK_BACKEND_PORT"
       status_one backend
-      if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]] && have "$OVERSEAARK_DOCKER"; then
+      if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
         status_vllm
       fi
       if [[ -d "$REPO_DIR/runtime/frontend-dist" || -d "$REPO_DIR/frontend/dist" ]]; then
