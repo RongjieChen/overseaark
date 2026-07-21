@@ -5,7 +5,7 @@ OverseaArk is a local-first multimodal campaign workbench for cross-border marke
 Current implementation status is mixed and documented deliberately:
 
 - Implemented: FastAPI campaign API, multipart product-image uploads, SQLite campaign/stage/event storage, six product campaign stages, SSE progress, rerun-from-stage, cancel, zip export, mock model hooks, command model hook boundary, adapter scripts, frontend workbench shell, degraded local frontend fallback, and self-healing root lifecycle scripts.
-- Implemented as local adapter scripts. DGX validation has confirmed the complete pinned model manifest, offline llama.cpp process isolation, timeout cleanup, and mock E2E; full schema-valid Step-3.7, Step1X, Cosmos3, Nemotron, and Magpie quality runs remain acceptance work.
+- Implemented as local adapter scripts. DGX validation has confirmed one-command dependency repair, the complete pinned model manifest, CUDA runtime imports for Step1X/Cosmos/NeMo, offline llama.cpp process isolation, timeout cleanup, and mock E2E; full schema-valid Step-3.7, Step1X, Cosmos3, Nemotron, and Magpie quality runs remain acceptance work.
 - Not implemented in code: ComfyUI, OpenClaw, or cloud inference APIs.
 - Current production scripts serve the FastAPI API and built frontend from `127.0.0.1:8000` when `runtime/frontend-dist` exists. Do not use a `5173` tunnel for production.
 
