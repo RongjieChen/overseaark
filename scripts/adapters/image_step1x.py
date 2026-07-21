@@ -73,6 +73,7 @@ def main() -> None:
         transformer.enable_layerwise_casting(
             storage_dtype=torch.float8_e4m3fn,
             compute_dtype=torch.bfloat16,
+            skip_modules_pattern=("pos_embed", "norm", "connector"),
         )
         fp8_layerwise = True
     cpu_offload = os.environ.get("OVERSEAARK_STEP1X_CPU_OFFLOAD", "0") == "1"
