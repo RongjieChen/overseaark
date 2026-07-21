@@ -170,10 +170,20 @@ def _local_llama_endpoint() -> str:
 
 
 def _invoke_llama(payload: dict[str, Any]) -> dict[str, Any]:
+    headers = {"Content-Type": "application/json"}
+    key_file = os.environ.get("OVERSEAARK_LLAMA_API_KEY_FILE")
+    if key_file:
+        key_path = Path(key_file)
+        if not key_path.is_file():
+            raise SystemExit(f"local llama.cpp API key file is missing: {key_file}")
+        key = key_path.read_text(encoding="utf-8").strip()
+        if not key:
+            raise SystemExit(f"local llama.cpp API key file is empty: {key_file}")
+        headers["Authorization"] = f"Bearer {key}"
     request = urllib.request.Request(
         _local_llama_endpoint(),
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:

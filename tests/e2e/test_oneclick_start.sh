@@ -147,6 +147,7 @@ fi
 OVERSEAARK_LLAMA_SERVER="$tmp_dir/fake-llama/bin/llama-server"
 OVERSEAARK_LLAMA_MODEL="$tmp_dir/models/qwen/Qwen3.6-Q4_K_M.gguf"
 OVERSEAARK_LLAMA_MMPROJ="$tmp_dir/models/qwen/mmproj-BF16.gguf"
+OVERSEAARK_LLAMA_API_KEY_FILE="$tmp_dir/data/run/llama-api-key"
 OVERSEAARK_LLAMA_PORT=18011
 native_command="$(llama_command)"
 [[ "$native_command" == *"127.0.0.1"* ]]
@@ -154,6 +155,8 @@ native_command="$(llama_command)"
 [[ "$native_command" == *"--flash-attn on"* ]]
 [[ "$native_command" == *"--mmproj"* ]]
 [[ "$native_command" == *"--no-webui"* ]]
+[[ "$native_command" == *"--api-key-file"* ]]
+[[ "$native_command" == *"--cors-origins localhost"* ]]
 [[ "$native_command" == *"HF_HUB_OFFLINE=1"* ]]
 [[ "$native_command" != *"docker"* ]]
 

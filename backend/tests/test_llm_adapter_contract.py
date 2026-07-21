@@ -19,6 +19,7 @@ def test_qwen_adapter_uses_local_llama_cpp_api_and_json_schema() -> None:
     assert "OVERSEAARK_LLM_BASE_URL" in adapter
     assert "/v1/chat/completions" in adapter
     assert "urllib.request.urlopen" in adapter
+    assert 'headers["Authorization"] = f"Bearer {key}"' in adapter
     assert '"type": "image_url"' in adapter
     assert "Output JSON Schema" in adapter
     assert '"type": "json_schema"' in adapter
@@ -47,6 +48,8 @@ def test_native_llama_runtime_is_pinned_cuda_accelerated_and_localhost_only() ->
     assert "--flash-attn on" in runtime
     assert "--reasoning off" in runtime
     assert "--host 127.0.0.1" in runtime
+    assert "--api-key-file %q" in runtime
+    assert "--cors-origins localhost --no-cors-credentials" in runtime
     assert "HF_HUB_OFFLINE=1" in runtime
     assert "start_llama" in lifecycle
     assert "OVERSEAARK_LLM_BASE_URL" in common

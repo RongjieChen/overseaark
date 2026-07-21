@@ -74,11 +74,23 @@ PY
   fi
 }
 
+ensure_llama_api_key() {
+  mkdir -p "$(dirname "$OVERSEAARK_LLAMA_API_KEY_FILE")"
+  if [[ ! -s "$OVERSEAARK_LLAMA_API_KEY_FILE" ]]; then
+    local py
+    py="$(python_bin)" || die "python3 is required to create the local llama.cpp API key"
+    (umask 077; "$py" -c 'import secrets; print(secrets.token_urlsafe(32))' > "$OVERSEAARK_LLAMA_API_KEY_FILE")
+  fi
+  chmod 600 "$OVERSEAARK_LLAMA_API_KEY_FILE"
+}
+
 llama_command() {
   printf 'exec env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 DO_NOT_TRACK=1 %q' \
     "$OVERSEAARK_LLAMA_SERVER"
   printf ' --model %q --mmproj %q --alias %q' \
     "$OVERSEAARK_LLAMA_MODEL" "$OVERSEAARK_LLAMA_MMPROJ" "$OVERSEAARK_LLAMA_SERVED_MODEL"
+  printf ' --api-key-file %q --cors-origins localhost --no-cors-credentials' \
+    "$OVERSEAARK_LLAMA_API_KEY_FILE"
   printf ' --host 127.0.0.1 --port %q --ctx-size %q --parallel %q' \
     "$OVERSEAARK_LLAMA_PORT" "$OVERSEAARK_LLAMA_CONTEXT_SIZE" "$OVERSEAARK_LLAMA_PARALLEL"
   printf ' --gpu-layers all --flash-attn on --jinja --reasoning off'
@@ -116,6 +128,7 @@ start_llama() {
   [[ -f "$OVERSEAARK_LLAMA_MMPROJ" ]] || \
     die "Qwen3.6 mmproj is missing at $OVERSEAARK_LLAMA_MMPROJ; run ./overseaark models sync"
   llama_install_ready || die "pinned CUDA llama.cpp is missing; run ./overseaark bootstrap"
+  ensure_llama_api_key
   if llama_health; then
     log "llama.cpp already healthy"
     return 0
