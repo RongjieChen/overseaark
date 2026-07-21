@@ -37,6 +37,8 @@ It performs an idempotent dependency preflight, invokes bootstrap only when need
 
 The first download is about 152 GB. `OVERSEAARK_AUTO_BOOTSTRAP=0` and `OVERSEAARK_AUTO_DOWNLOAD_MODELS=0` convert startup to strict fail-fast mode.
 
+For the target mainland network, dependency bootstrap defaults to `OVERSEAARK_PYPI_INDEX=https://mirrors.aliyun.com/pypi/simple`, rewrites Git transport through `OVERSEAARK_GITHUB_GIT_PREFIX=https://gh-proxy.com/https://github.com/`, and routes pinned Cosmos release wheels through `OVERSEAARK_GITHUB_ASSET_PREFIX=https://ghfast.top/`. Locked Git commits plus uv/model SHA256 values remain the integrity authority. Operators may replace any mirror; an empty Git or asset prefix uses GitHub directly.
+
 ## Explicit Bootstrap
 
 Mock mode, local smoke only. This must override `.env.example`, which defaults to command mode:

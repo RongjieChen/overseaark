@@ -73,7 +73,7 @@ DGX Spark command mode:
 
 On the first run, `start` installs missing application and pinned inference dependencies, builds the frontend, builds pinned CUDA `llama.cpp` when needed, verifies every required model, downloads only missing or invalid locked files, starts FastAPI, and waits for `/api/v1/health`. Downloads are resumable; rerun the same command after a connection interruption. The required model set is about 152 GB, so the first run can take substantial time.
 
-`bootstrap` and `models sync` remain available as explicit maintenance commands. Set `OVERSEAARK_AUTO_BOOTSTRAP=0` or `OVERSEAARK_AUTO_DOWNLOAD_MODELS=0` for fail-fast startup. A same-size file with the wrong SHA256 is removed precisely and fetched again; valid locked files are retained. `.env.example` defaults to command mode and localhost-only serving.
+`bootstrap` and `models sync` remain available as explicit maintenance commands. Set `OVERSEAARK_AUTO_BOOTSTRAP=0` or `OVERSEAARK_AUTO_DOWNLOAD_MODELS=0` for fail-fast startup. A same-size file with the wrong SHA256 is removed precisely and fetched again; valid locked files are retained. `.env.example` defaults to command mode, localhost-only serving, an Aliyun PyPI mirror, and separate Git/large-asset GitHub prefixes suitable for the target network. Framework commits and uv wheel/model hashes remain pinned; set the mirror variables to operator-approved alternatives when required.
 
 Use:
 

@@ -3,6 +3,13 @@ set -Eeuo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
+export PIP_INDEX_URL="${PIP_INDEX_URL:-$OVERSEAARK_PYPI_INDEX}"
+if [[ -n "$OVERSEAARK_GITHUB_GIT_PREFIX" ]]; then
+  export GIT_CONFIG_COUNT=1
+  export GIT_CONFIG_KEY_0="url.${OVERSEAARK_GITHUB_GIT_PREFIX}.insteadOf"
+  export GIT_CONFIG_VALUE_0="https://github.com/"
+fi
+
 bootstrap_owns_lock=0
 if [[ "${OVERSEAARK_OPERATION_LOCK_HELD:-0}" != "1" ]]; then
   acquire_operation_lock bootstrap
@@ -114,6 +121,30 @@ create_python_env() {
   fi
 }
 
+rewrite_cosmos_asset_urls() {
+  [[ -n "$OVERSEAARK_GITHUB_ASSET_PREFIX" ]] || return 0
+  local lock_file="$REPO_DIR/vendor/cosmos-framework/uv.lock"
+  [[ -f "$lock_file" ]] || die "Cosmos uv.lock is missing: $lock_file"
+  python3 - "$lock_file" "$OVERSEAARK_GITHUB_ASSET_PREFIX" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+prefix = sys.argv[2].rstrip("/") + "/"
+marker = "https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/"
+rewritten = []
+for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+    marker_at = line.find(marker)
+    if marker_at >= 0 and line.lstrip().startswith("{ url = \""):
+        url_start = line.find("https://")
+        url_end = line.find('"', marker_at)
+        original_url = line[marker_at:url_end]
+        line = line[:url_start] + prefix + original_url + line[url_end:]
+    rewritten.append(line)
+path.write_text("".join(rewritten), encoding="utf-8")
+PY
+}
+
 install_frontend() {
   if [[ -f "$REPO_DIR/frontend/package.json" ]]; then
     if [[ -f "$REPO_DIR/frontend/package-lock.json" ]]; then
@@ -175,9 +206,11 @@ create_adapter_envs() {
     git -C "$REPO_DIR/vendor/cosmos-framework" fetch --depth 1 origin "$cosmos_framework_revision"
   fi
   git -C "$REPO_DIR/vendor/cosmos-framework" checkout --detach "$cosmos_framework_revision"
+  rewrite_cosmos_asset_urls
   (
     cd "$REPO_DIR/vendor/cosmos-framework"
-    UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}" \
+    UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX:-$OVERSEAARK_PYPI_INDEX}" \
+      UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}" \
       UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-10}" \
       UV_CONCURRENT_DOWNLOADS="${UV_CONCURRENT_DOWNLOADS:-4}" \
       "$REPO_DIR/.venv-cosmos/bin/uv" sync --group=cu130
