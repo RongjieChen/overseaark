@@ -91,6 +91,8 @@ def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
     )
 
     assert 'config.codecmodel_path = str(codec_path)' in adapter
+    assert 'models_root() / "google/byt5-small"' in adapter
+    assert 'tokenizer_config.pretrained_model = str(tokenizer_path)' in adapter
     assert "override_config_path=config" in adapter
     assert "codec_config.discriminator = None" in adapter
     assert 'codec_config.use_scl_loss = False' in adapter
@@ -98,3 +100,6 @@ def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
     assert codec["files"][0]["sha256"] == (
         "28c2518de3e3d5a2c7d9bca40a7ebc0644eb76c60b890970365325bdd8e9f099"
     )
+    byt5 = next(model for model in manifest["models"] if model["id"] == "byt5-small-tokenizer")
+    assert byt5["revision"] == "68377bdc18a2ffec8a0533fef03b1c513a4dd49d"
+    assert all(not item["path"].endswith((".bin", ".safetensors")) for item in byt5["files"])

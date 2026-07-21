@@ -58,6 +58,10 @@ def main() -> None:
         / "nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps/nemo-nano-codec-22khz-1.89kbps-21.5fps.nemo",
         "Magpie NanoCodec .nemo",
     )
+    tokenizer_path = require_path(
+        models_root() / "google/byt5-small",
+        "Magpie ByT5 tokenizer",
+    )
     output_path = Path(payload["output_path"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     speaker = payload.get("speaker", "Sofia")
@@ -70,6 +74,9 @@ def main() -> None:
 
     config = MagpieTTSModel.restore_from(str(model_path), return_config=True)
     config.codecmodel_path = str(codec_path)
+    for tokenizer_config in config.text_tokenizers.values():
+        if tokenizer_config.get("_target_") == "AutoTokenizer":
+            tokenizer_config.pretrained_model = str(tokenizer_path)
     original_codec_restore = AudioCodecModel.restore_from
 
     def restore_inference_codec(restore_path: str, *args: object, **kwargs: object) -> object:
