@@ -45,7 +45,7 @@ sync_modelscope() {
   local source="$1" revision="$2" dest="$3" includes="${4:-}"
   local py
   py="$(env_python modelscope modelscope)"
-  "$py" -m modelscope download --model "$source" --revision "$revision" --local_dir "$dest"
+  "${py%/python}/modelscope" download --model "$source" --revision "$revision" --local_dir "$dest"
 }
 
 sync_huggingface() {
