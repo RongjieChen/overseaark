@@ -112,7 +112,7 @@ create_adapter_envs() {
     python3 -m venv "$REPO_DIR/.venv-step1x"
   fi
   "$REPO_DIR/.venv-step1x/bin/pip" install --upgrade pip wheel setuptools
-  "$REPO_DIR/.venv-step1x/bin/pip" install --index-url https://download.pytorch.org/whl/cu130 torch torchvision
+  "$REPO_DIR/.venv-step1x/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchvision
   "$REPO_DIR/.venv-step1x/bin/pip" install "transformers==4.55.0" pillow accelerate sentencepiece protobuf
   local step1x_diffusers_revision="f5f1c98fa00cb4d0479af1b1b1c17d724345963a"
   if [[ ! -d "$REPO_DIR/vendor/diffusers-step1xedit_v1p2/.git" ]]; then
@@ -140,7 +140,7 @@ create_adapter_envs() {
     python3 -m venv "$REPO_DIR/.venv-nemo"
   fi
   "$REPO_DIR/.venv-nemo/bin/pip" install --upgrade pip wheel setuptools
-  "$REPO_DIR/.venv-nemo/bin/pip" install --index-url https://download.pytorch.org/whl/cu130 torch torchaudio
+  "$REPO_DIR/.venv-nemo/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchaudio
   "$REPO_DIR/.venv-nemo/bin/pip" install \
     "nemo_toolkit[asr,tts] @ git+https://github.com/NVIDIA-NeMo/NeMo.git@93b15b1f423ddc8e0d189810fdd8304091d9b1bd" \
     kaldialign soundfile
