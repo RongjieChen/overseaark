@@ -7,6 +7,7 @@ import os
 import signal
 import shutil
 import shlex
+import tempfile
 import time
 import wave
 from abc import ABC
@@ -376,28 +377,33 @@ async def _run_control_command(command: str, action: str) -> None:
     if not base_args:
         raise AdapterError("empty LLM control command")
     args = [*base_args, action]
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(),
-            timeout=float(os.environ.get("OVERSEAARK_LLAMA_STARTUP_TIMEOUT", "900")),
+    # The start action intentionally daemonizes llama-server. A daemon can
+    # briefly inherit its launcher's stdout/stderr file descriptors, so PIPE +
+    # communicate() may wait for the daemon instead of the already-exited
+    # control process. A seekable temporary file preserves failure diagnostics
+    # without tying completion to pipe EOF from grandchildren.
+    with tempfile.TemporaryFile() as control_output:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=control_output,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,
         )
-    except TimeoutError as exc:
-        await _terminate_process_group(proc)
-        raise AdapterError(f"LLM control timed out while requesting {action}") from exc
-    except asyncio.CancelledError:
-        await _terminate_process_group(proc)
-        raise
-    if proc.returncode != 0:
-        detail = stderr.decode("utf-8", errors="replace").strip()
-        if not detail:
-            detail = stdout.decode("utf-8", errors="replace").strip()
-        raise AdapterError(detail or f"LLM control failed while requesting {action}")
+        try:
+            await asyncio.wait_for(
+                proc.wait(),
+                timeout=float(os.environ.get("OVERSEAARK_LLAMA_STARTUP_TIMEOUT", "900")),
+            )
+        except TimeoutError as exc:
+            await _terminate_process_group(proc)
+            raise AdapterError(f"LLM control timed out while requesting {action}") from exc
+        except asyncio.CancelledError:
+            await _terminate_process_group(proc)
+            raise
+        if proc.returncode != 0:
+            control_output.seek(0)
+            detail = control_output.read().decode("utf-8", errors="replace").strip()
+            raise AdapterError(detail or f"LLM control failed while requesting {action}")
 
 
 def _parse_command_stdout(stdout: bytes) -> Any:

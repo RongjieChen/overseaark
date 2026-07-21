@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import os
+import signal
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 import app.adapters as adapters
-from app.adapters import AdapterError, CommandModelHooks, _parse_command_stdout
-from app.adapters import _run_command
+from app.adapters import (
+    AdapterError,
+    CommandModelHooks,
+    _parse_command_stdout,
+    _run_command,
+    _run_control_command,
+)
 
 
 def test_command_protocol_accepts_final_json_after_nemo_progress() -> None:
@@ -100,3 +108,32 @@ async def test_heavy_adapter_switch_stops_llama_before_cuda_work(monkeypatch) ->
         "control:stop",
         "adapter:image-adapter",
     ]
+
+
+@pytest.mark.asyncio
+async def test_llm_control_returns_when_daemon_inherits_standard_output(
+    tmp_path: Path, monkeypatch
+) -> None:
+    pid_path = tmp_path / "daemon.pid"
+    script = tmp_path / "daemonize.py"
+    script.write_text(
+        "import pathlib, subprocess, sys\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(child.pid))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OVERSEAARK_LLAMA_STARTUP_TIMEOUT", "1")
+
+    started = time.monotonic()
+    await _run_control_command(f"{sys.executable} {script} {pid_path}", "start")
+    elapsed = time.monotonic() - started
+
+    child_pid = int(pid_path.read_text(encoding="utf-8"))
+    try:
+        assert elapsed < 0.75
+        os.kill(child_pid, 0)
+    finally:
+        try:
+            os.kill(child_pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass

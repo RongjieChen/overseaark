@@ -8,6 +8,7 @@
 
 - GitHub：[RongjieChen/overseaark](https://github.com/RongjieChen/overseaark)
 - 项目报告：[docs/PROJECT-REPORT.md](https://github.com/RongjieChen/overseaark/blob/main/docs/PROJECT-REPORT.md)
-- 演示视频：发布后补充
+- CSDN 发布页：[article/details/163095148](https://blog.csdn.net/weixin_38817016/article/details/163095148)
+- 演示视频：B 站上传受当前浏览器文件权限阻塞，发布后补充
 
 <!-- CSDN 发布时，将 PROJECT-REPORT.md 中“项目摘要”至文末的完整正文粘贴在此导语之后。 -->

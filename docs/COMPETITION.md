@@ -43,8 +43,9 @@ The latest status supplied for this documentation pass:
 | Run 2 | Completed | Uninterrupted end-to-end completion in 10m34s; Japanese ASR threshold retry was exercised. |
 | Run 3 | Completed | Uninterrupted completion in 10m45s; real 854x480 Cosmos output, valid zip, and ASR similarity zh `0.833`, en `1.0`, ja `1.0`. |
 | Run 4 | Completed | All six stages succeeded on first attempts in 590.003s (9m50s); real 854x480 output, valid 23-member zip, and ASR similarity zh `0.933`, en `1.0`, ja `1.0`. |
+| Run 5 | Completed | All stages succeeded on first attempts in 604.844s; a Chinese audio QC retry passed at `0.889`, with en `1.0` and ja `0.931`; video and 23-member zip verified. |
 
-All four runs reached `completed`. Run 4 provides the first measured <=10-minute pass after the 6-step Step1X change. The stricter acceptance criterion of three consecutive <=10-minute campaigns remains open until two additional qualifying runs are captured.
+All five runs reached `completed`. Run 4 provides the first measured <=10-minute pass after the 6-step Step1X change. Run 5 missed by 4.844 seconds because truthful QC retried Chinese audio, so the stricter criterion now requires three new consecutive <=10-minute campaigns.
 
 ## DGX Spark Fit
 
@@ -85,7 +86,7 @@ Use:
 - "Model stack is pinned by manifest with size and SHA-256 verification."
 - "Step1X defaults to 6 steps and Cosmos3-Edge defaults to 28 steps for measured demo latency."
 - "Nemotron ASR and Magpie TTS provide a measured audio QC loop."
-- "Four real DGX E2E runs completed; run 4 completed all stages in 9m50s with a valid 480p model video and auditable export."
+- "Five real DGX E2E runs completed; run 4 completed all stages in 9m50s with a valid 480p model video and auditable export."
 
 Avoid:
 
