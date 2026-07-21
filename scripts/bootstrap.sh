@@ -82,8 +82,12 @@ create_python_env() {
 
 install_frontend() {
   if [[ -f "$REPO_DIR/frontend/package.json" ]]; then
-    if have pnpm; then
-      (cd "$REPO_DIR/frontend" && pnpm install && pnpm run build)
+    if [[ -f "$REPO_DIR/frontend/package-lock.json" ]]; then
+      local npm
+      npm="$(npm_bin)" || die "npm is required for frontend/package-lock.json"
+      (cd "$REPO_DIR/frontend" && "$npm" ci && "$npm" run build)
+    elif have pnpm && [[ -f "$REPO_DIR/frontend/pnpm-lock.yaml" ]]; then
+      (cd "$REPO_DIR/frontend" && pnpm install --frozen-lockfile && pnpm run build)
     else
       local npm
       npm="$(npm_bin)" || die "npm is required for frontend/package.json"
