@@ -348,13 +348,26 @@ async def _run_command(command: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise
     if proc.returncode != 0:
         raise AdapterError(stderr.decode("utf-8", errors="replace").strip() or "adapter failed")
-    try:
-        result = json.loads(stdout.decode("utf-8"))
-    except json.JSONDecodeError as exc:
-        raise AdapterError("adapter command did not return JSON") from exc
+    result = _parse_command_stdout(stdout)
     if not isinstance(result, dict):
         raise AdapterError("adapter command returned non-object JSON")
     return result
+
+
+def _parse_command_stdout(stdout: bytes) -> Any:
+    decoded = stdout.decode("utf-8", errors="replace").strip()
+    try:
+        return json.loads(decoded)
+    except json.JSONDecodeError as exc:
+        # NeMo and a few CUDA libraries write progress information to stdout
+        # even when their Python logging is configured for stderr. Adapter
+        # scripts own the final line, so accept only that line as the protocol
+        # result instead of scanning arbitrary diagnostics for JSON.
+        final_line = decoded.rsplit("\n", 1)[-1] if decoded else ""
+        try:
+            return json.loads(final_line)
+        except json.JSONDecodeError:
+            raise AdapterError("adapter command did not end with a JSON result") from exc
 
 
 async def _ffmpeg_degraded_video(
