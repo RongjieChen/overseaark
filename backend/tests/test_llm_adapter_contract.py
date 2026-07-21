@@ -10,6 +10,7 @@ def test_llama_adapter_is_noninteractive_and_schema_validated() -> None:
 
     assert '"--no-conversation"' in adapter
     assert '"--simple-io"' in adapter
+    assert '"--single-turn"' in adapter
     assert '"--json-schema"' in adapter
     assert '"--gpu-layers"' in adapter
     assert "_extract_task_result" in adapter

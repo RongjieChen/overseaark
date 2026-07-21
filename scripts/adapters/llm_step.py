@@ -168,6 +168,7 @@ def main() -> None:
         json.dumps(schema),
         "--no-conversation",
         "--simple-io",
+        "--single-turn",
         "--temp",
         "0.2",
         "--no-display-prompt",
