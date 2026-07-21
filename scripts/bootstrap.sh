@@ -205,7 +205,9 @@ create_adapter_envs() {
     filelock "typing-extensions>=4.10" "sympy>=1.13.3" \
     "networkx>=2.5.1" jinja2 "fsspec>=0.8.5" pillow numpy
   "$REPO_DIR/.venv-step1x/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchvision
-  "$REPO_DIR/.venv-step1x/bin/pip" install "transformers==4.55.0" pillow accelerate sentencepiece protobuf
+  "$REPO_DIR/.venv-step1x/bin/pip" install \
+    "transformers==4.55.0" "megfile==5.0.14" "qwen-vl-utils==0.0.14" \
+    pillow accelerate sentencepiece protobuf
   local step1x_diffusers_revision="f5f1c98fa00cb4d0479af1b1b1c17d724345963a"
   if [[ ! -d "$REPO_DIR/vendor/diffusers-step1xedit_v1p2/.git" ]]; then
     mkdir -p "$REPO_DIR/vendor"

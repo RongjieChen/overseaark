@@ -82,7 +82,8 @@ runtime_dependencies_ready() {
   local_runtime_env
   [[ -x "${OVERSEAARK_LLAMA_CLI:-/root/llama.cpp/build/bin/llama-cli}" ]] || return 1
   command_program "$OVERSEAARK_LLM_COMMAND" >/dev/null || return 1
-  python_command_imports "$OVERSEAARK_IMAGE_COMMAND" 'import torch, diffusers, PIL' || return 1
+  python_command_imports "$OVERSEAARK_IMAGE_COMMAND" \
+    'import torch, PIL; from diffusers import Step1XEditPipelineV1P2' || return 1
   python_command_imports "$OVERSEAARK_VIDEO_COMMAND" 'import cosmos_framework' || return 1
   python_command_imports "$OVERSEAARK_ASR_COMMAND" 'import nemo.collections.asr, soundfile' || return 1
   python_command_imports "$OVERSEAARK_TTS_COMMAND" 'import nemo.collections.tts, soundfile' || return 1

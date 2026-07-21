@@ -70,6 +70,11 @@ Heavy framework pins installed by bootstrap:
 | Cosmos3 video | NVIDIA/cosmos-framework | `ed8287fd7477113f8ac4f6b84290514d55cf0cdc` |
 | ASR/TTS | NVIDIA-NeMo/NeMo | `93b15b1f423ddc8e0d189810fdd8304091d9b1bd` |
 
+The Step1X environment also pins `megfile==5.0.14` and
+`qwen-vl-utils==0.0.14`. The pinned fork imports both at pipeline load time but
+does not declare them in its package metadata, so bootstrap installs and
+preflights them explicitly.
+
 ## Model Directories
 
 `model-manifest.lock.json` pins the expected model layout under `OVERSEAARK_MODELS_DIR`:
