@@ -98,7 +98,7 @@ load_env() {
   export OVERSEAARK_VLLM_MAX_NUM_BATCHED_TOKENS="${OVERSEAARK_VLLM_MAX_NUM_BATCHED_TOKENS:-8192}"
   export OVERSEAARK_VLLM_API_KEY_FILE="${OVERSEAARK_VLLM_API_KEY_FILE:-$OVERSEAARK_PID_DIR/vllm-api-key}"
   export OVERSEAARK_LLM_BASE_URL="${OVERSEAARK_LLM_BASE_URL:-http://127.0.0.1:$OVERSEAARK_VLLM_PORT}"
-  export OVERSEAARK_PYTORCH_INDEX="${OVERSEAARK_PYTORCH_INDEX:-https://mirrors.aliyun.com/pytorch-wheels/cu129}"
+  export OVERSEAARK_PYTORCH_INDEX="${OVERSEAARK_PYTORCH_INDEX:-https://mirrors.aliyun.com/pytorch-wheels/cu130}"
   export MODELSCOPE_ENDPOINT="${MODELSCOPE_ENDPOINT:-https://modelscope.cn}"
   export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 }

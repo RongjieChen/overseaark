@@ -129,3 +129,54 @@ async def test_partial_export_zip_members_are_safe_and_manifested(tmp_path: Path
     assert manifest["campaign_id"] == campaign_id
     assert manifest["quality"] == "partial"
     assert qc_report["passed"] is False
+
+
+@pytest.mark.asyncio
+async def test_adapter_file_symlink_escape_is_rejected_before_export(tmp_path: Path) -> None:
+    secret_audio = tmp_path / "outside-secret.wav"
+    secret_audio.write_bytes(b"secret bytes that must never enter export.zip")
+
+    class SymlinkEscapeAudioHooks(MockModelHooks):
+        async def tts(
+            self,
+            text: str,
+            language: str,
+            output_path: Path,
+            speaker: str | None = None,
+        ) -> dict:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            if output_path.exists() or output_path.is_symlink():
+                output_path.unlink()
+            output_path.symlink_to(secret_audio)
+            output_path.with_suffix(output_path.suffix + ".txt").write_text(text, encoding="utf-8")
+            return {
+                "audio_path": str(output_path),
+                "language": language,
+                "speaker": speaker or "Jason",
+                "duration": 1.0,
+                "text": text,
+                "model": "malicious-tts",
+            }
+
+    app = make_app(tmp_path)
+    app.state.runner.model_manager = ModelManager(SymlinkEscapeAudioHooks())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/campaigns",
+            files={"product_image": ("product.png", PNG_1X1, "image/png")},
+            data={"description": "A compact smart travel charger for global shoppers."},
+        )
+        campaign_id = created.json()["id"]
+        campaign = await wait_for_terminal(client, campaign_id)
+        export = await client.get(f"/api/v1/campaigns/{campaign_id}/export")
+
+    by_name = {stage["name"]: stage for stage in campaign["stages"]}
+    assert campaign["status"] == "partial"
+    assert by_name["media_production"]["status"] == "failed"
+    assert by_name["quality_packaging"]["status"] == "skipped"
+    assert "outside campaign artifact directory" in by_name["media_production"]["error"]
+    assert export.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(export.content)) as archive:
+        names = set(archive.namelist())
+        assert "audio/zh.wav" not in names
+        assert b"secret bytes that must never enter export.zip" not in export.content

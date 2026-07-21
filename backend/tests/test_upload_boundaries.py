@@ -54,6 +54,48 @@ async def test_product_image_rejects_empty_supported_content_type(tmp_path: Path
     assert response.json()["detail"] == "Upload cannot be empty"
 
 
+@pytest.mark.asyncio
+async def test_audio_upload_rejects_forged_wav_content_type(tmp_path: Path) -> None:
+    app = make_app(tmp_path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/transcriptions",
+            files={"audio": ("voice.wav", b"random bytes pretending to be wav", "audio/wav")},
+            data={"language": "auto"},
+        )
+
+    assert response.status_code == 415
+    assert response.json()["detail"] == "Upload content does not match audio type"
+
+
+@pytest.mark.parametrize(
+    ("filename", "content", "content_type"),
+    [
+        ("voice.wav", b"RIFF\x24\x00\x00\x00WAVEfmt payload", "audio/wav"),
+        ("voice.wav", b"RIFF\x24\x00\x00\x00WAVEfmt payload", "audio/x-wav"),
+        ("voice.mp3", b"ID3\x04\x00\x00\x00\x00\x00\x21payload", "audio/mpeg"),
+        ("voice.m4a", b"\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00payload", "audio/mp4"),
+        ("voice.webm", b"\x1a\x45\xdf\xa3payload", "audio/webm"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_audio_upload_accepts_matching_audio_magic(
+    tmp_path: Path,
+    filename: str,
+    content: bytes,
+    content_type: str,
+) -> None:
+    app = make_app(tmp_path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/transcriptions",
+            files={"audio": (filename, content, content_type)},
+            data={"language": "auto"},
+        )
+
+    assert response.status_code == 200
+
+
 @pytest.mark.parametrize(
     ("filename", "content", "content_type"),
     [

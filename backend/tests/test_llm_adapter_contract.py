@@ -82,6 +82,9 @@ def test_native_vllm_runtime_is_pinned_cuda_accelerated_and_localhost_only() -> 
     assert VLLM_WHEEL_SHA256 in common
     assert "https://github.com/vllm-project/vllm/releases/download/v0.25.1/" in common
     assert "https://pypi.tuna.tsinghua.edu.cn/simple" in common
+    assert "https://mirrors.aliyun.com/pytorch-wheels/cu130" in common
+    assert bootstrap.count('--extra-index-url "$OVERSEAARK_PYTORCH_INDEX"') == 3
+    assert "https://download.pytorch.org/whl/cu130" not in bootstrap
     assert "https://hf-mirror.com" in common
     assert 'bash "$SCRIPT_DIR/vllm_server.sh" install' in bootstrap
     assert "vllm.__version__.split(\"+\")[0] == expected" in runtime

@@ -60,6 +60,7 @@ ALLOWED_AUDIO_TYPES = {
     "audio/mp4": ".m4a",
     "audio/webm": ".webm",
 }
+MP3_FRAME_SYNC_SECOND_BYTES = frozenset({0xE2, 0xE3, 0xEA, 0xEB, 0xF2, 0xF3, 0xFA, 0xFB})
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 
@@ -175,6 +176,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app_settings.uploads_dir / "transcriptions",
             ALLOWED_AUDIO_TYPES,
             max_bytes=MAX_IMAGE_BYTES,
+            validate_audio_magic=True,
         )
         result = await model_manager.asr(audio_path, language)
         return TranscriptionResponse(**result)
@@ -300,6 +302,7 @@ async def _save_upload(
     allowed_types: dict[str, str],
     max_bytes: int,
     validate_image_magic: bool = False,
+    validate_audio_magic: bool = False,
 ) -> Path:
     content_type = upload.content_type or ""
     suffix = allowed_types.get(content_type)
@@ -315,8 +318,8 @@ async def _save_upload(
             if size > max_bytes:
                 path.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="Upload exceeds 20MB limit")
-            if len(head) < 12:
-                head = (head + chunk)[:12]
+            if len(head) < 16:
+                head = (head + chunk)[:16]
             handle.write(chunk)
     if size == 0:
         path.unlink(missing_ok=True)
@@ -324,6 +327,9 @@ async def _save_upload(
     if validate_image_magic and not _matches_image_magic(content_type, head):
         path.unlink(missing_ok=True)
         raise HTTPException(status_code=415, detail="Upload content does not match image type")
+    if validate_audio_magic and not _matches_audio_magic(content_type, head):
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=415, detail="Upload content does not match audio type")
     return path
 
 
@@ -331,6 +337,20 @@ def _matches_image_magic(content_type: str, head: bytes) -> bool:
     if content_type == "image/webp":
         return len(head) >= 12 and head.startswith(b"RIFF") and head[8:12] == b"WEBP"
     return any(head.startswith(prefix) for prefix in IMAGE_MAGIC_PREFIXES.get(content_type, ()))
+
+
+def _matches_audio_magic(content_type: str, head: bytes) -> bool:
+    if content_type in {"audio/wav", "audio/x-wav"}:
+        return len(head) >= 12 and head.startswith(b"RIFF") and head[8:12] == b"WAVE"
+    if content_type == "audio/mpeg":
+        return head.startswith(b"ID3") or (
+            len(head) >= 2 and head[0] == 0xFF and head[1] in MP3_FRAME_SYNC_SECOND_BYTES
+        )
+    if content_type == "audio/mp4":
+        return len(head) >= 12 and head[4:8] == b"ftyp"
+    if content_type == "audio/webm":
+        return head.startswith(b"\x1a\x45\xdf\xa3")
+    return False
 
 
 def _parse_csv(value: str) -> list[str]:

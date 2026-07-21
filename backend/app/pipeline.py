@@ -22,6 +22,10 @@ class CampaignCancelled(RuntimeError):
     pass
 
 
+class ArtifactBoundaryError(ValueError):
+    pass
+
+
 class CampaignRunner:
     def __init__(self, store: Store, model_manager: ModelManager, artifacts_dir: Path):
         self.store = store
@@ -87,6 +91,8 @@ class CampaignRunner:
                 raise
             except Exception as exc:  # noqa: BLE001 - stage failures are persisted as campaign state.
                 last_error = str(exc)
+                if isinstance(exc, ArtifactBoundaryError):
+                    last_output = {}
                 self.store.add_event(
                     campaign_id,
                     "stage.retry" if attempts == 1 else "stage.failed",
@@ -124,6 +130,7 @@ class CampaignRunner:
     ) -> None:
         if not isinstance(output, dict):
             raise ValueError(f"{stage.value} adapter returned a non-object result")
+        package_dir = self.artifacts_dir / context["campaign"].id
         if stage == StageName.market_positioning:
             _require_keys(output, stage, "positioning", "differentiators", "market_hypotheses")
         elif stage == StageName.buyer_persona:
@@ -155,17 +162,17 @@ class CampaignRunner:
                         f"multilingual_copy.copy.{language} missing keys: {', '.join(missing)}"
                     )
         elif stage == StageName.visual_design:
-            _require_file(output, stage, "image_path")
+            _require_file_in_dir(output, stage, "image_path", package_dir)
         elif stage == StageName.media_production:
             _require_keys(output, stage, "audio", "video")
             audio = output["audio"]
             for language in context["campaign"].languages:
                 if not isinstance(audio, dict) or not isinstance(audio.get(language), dict):
                     raise ValueError(f"media_production.audio missing language {language}")
-                _require_file(audio[language], stage, "audio_path")
+                _require_file_in_dir(audio[language], stage, "audio_path", package_dir)
             if not isinstance(output["video"], dict):
                 raise ValueError("media_production.video must be an object")
-            _require_file(output["video"], stage, "video_path")
+            _require_file_in_dir(output["video"], stage, "video_path", package_dir)
             if output["video"].get("quality") == "degraded":
                 raise ValueError(
                     "Cosmos3-Edge failed; retained a labeled ffmpeg fallback as a partial artifact"
@@ -173,7 +180,7 @@ class CampaignRunner:
         elif stage == StageName.quality_packaging:
             _require_keys(output, stage, "qc", "manifest_path", "qc_report_path", "zip_path")
             for key in ("manifest_path", "qc_report_path", "zip_path"):
-                _require_file(output, stage, key)
+                _require_file_in_dir(output, stage, key, package_dir)
             if output["qc"].get("passed") is not True:
                 raise ValueError("quality_packaging failed the ASR/TTS similarity threshold")
 
@@ -271,7 +278,7 @@ class CampaignRunner:
         qc_report_path = package_dir / "qc_report.json"
         zip_path = package_dir / "export.zip"
         media = context["artifacts"][StageName.media_production.value]
-        audio_checks = await self._qc_audio(campaign.languages, media["audio"])
+        audio_checks = await self._qc_audio(campaign.languages, media["audio"], package_dir)
         video = media["video"]
         warnings = list(video.get("warnings", []))
         if video.get("quality") == "degraded":
@@ -335,26 +342,41 @@ class CampaignRunner:
             copy = context["artifacts"][StageName.multilingual_copy.value]["copy"]
             for language in campaign.languages:
                 archive.writestr(f"copy/{language}.json", json.dumps(copy[language], indent=2))
-            visual = Path(context["artifacts"][StageName.visual_design.value]["image_path"])
+            visual = _resolve_file_in_dir(
+                context["artifacts"][StageName.visual_design.value]["image_path"],
+                package_dir,
+                StageName.visual_design,
+                "image_path",
+            )
             archive.write(visual, visual.name)
             archive.write(visual, "poster.png")
-            archive.write(Path(media["video"]["video_path"]), "campaign_video.mp4")
-            archive.write(Path(media["video"]["video_path"]), "video.mp4")
+            video = _resolve_file_in_dir(
+                media["video"]["video_path"], package_dir, StageName.media_production, "video_path"
+            )
+            archive.write(video, "campaign_video.mp4")
+            archive.write(video, "video.mp4")
             for language, item in media["audio"].items():
-                archive.write(Path(item["audio_path"]), f"voice_{language}.wav")
-                archive.write(Path(item["audio_path"]), f"audio/{language}.wav")
+                audio_path = _resolve_file_in_dir(
+                    item["audio_path"], package_dir, StageName.media_production, "audio_path"
+                )
+                archive.write(audio_path, f"voice_{language}.wav")
+                archive.write(audio_path, f"audio/{language}.wav")
         return packaging_output
 
     async def _qc_audio(
         self,
         languages: list[str],
         audio: dict[str, Any],
+        package_dir: Path,
     ) -> dict[str, dict[str, Any]]:
         checks: dict[str, dict[str, Any]] = {}
         for language in languages:
             item = audio[language]
             reference_text = item["text"]
-            transcript = await self.model_manager.asr(Path(item["audio_path"]), language)
+            audio_path = _resolve_file_in_dir(
+                item["audio_path"], package_dir, StageName.media_production, "audio_path"
+            )
+            transcript = await self.model_manager.asr(audio_path, language)
             similarity = _normalized_similarity(reference_text, transcript["text"])
             retries = 0
             if similarity < QC_SIMILARITY_THRESHOLD:
@@ -368,7 +390,10 @@ class CampaignRunner:
                 )
                 audio[language] = replacement
                 item = replacement
-                transcript = await self.model_manager.asr(Path(item["audio_path"]), language)
+                audio_path = _resolve_file_in_dir(
+                    item["audio_path"], package_dir, StageName.media_production, "audio_path"
+                )
+                transcript = await self.model_manager.asr(audio_path, language)
                 similarity = _normalized_similarity(reference_text, transcript["text"])
             checks[language] = {
                 "reference_text": reference_text,
@@ -446,6 +471,32 @@ def _require_file(output: dict[str, Any], stage: StageName, key: str) -> None:
     value = output.get(key)
     if not isinstance(value, str) or not Path(value).is_file():
         raise ValueError(f"{stage.value}.{key} does not reference an existing file")
+
+
+def _require_file_in_dir(
+    output: dict[str, Any],
+    stage: StageName,
+    key: str,
+    directory: Path,
+) -> None:
+    _resolve_file_in_dir(output.get(key), directory, stage, key)
+
+
+def _resolve_file_in_dir(value: Any, directory: Path, stage: StageName, key: str) -> Path:
+    if not isinstance(value, str):
+        raise ValueError(f"{stage.value}.{key} does not reference an existing file")
+    try:
+        resolved = Path(value).resolve(strict=True)
+        resolved.relative_to(directory.resolve())
+    except FileNotFoundError as exc:
+        raise ValueError(f"{stage.value}.{key} does not reference an existing file") from exc
+    except ValueError as exc:
+        raise ArtifactBoundaryError(
+            f"{stage.value}.{key} points outside campaign artifact directory"
+        ) from exc
+    if not resolved.is_file():
+        raise ValueError(f"{stage.value}.{key} does not reference an existing file")
+    return resolved
 
 
 def _model_audit() -> list[dict[str, Any]]:

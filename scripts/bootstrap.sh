@@ -198,7 +198,7 @@ create_adapter_envs() {
   "$REPO_DIR/.venv-step1x/bin/pip" install \
     filelock "typing-extensions>=4.10" "sympy>=1.13.3" \
     "networkx>=2.5.1" jinja2 "fsspec>=0.8.5" pillow numpy
-  "$REPO_DIR/.venv-step1x/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchvision
+  "$REPO_DIR/.venv-step1x/bin/pip" install --extra-index-url "$OVERSEAARK_PYTORCH_INDEX" torch torchvision
   "$REPO_DIR/.venv-step1x/bin/pip" install \
     "transformers==4.55.0" "megfile==5.0.14" "qwen-vl-utils==0.0.14" \
     pillow accelerate sentencepiece protobuf
@@ -252,7 +252,7 @@ create_adapter_envs() {
   "$REPO_DIR/.venv-asr/bin/pip" install \
     filelock "typing-extensions>=4.10" "sympy>=1.13.3" \
     "networkx>=2.5.1" jinja2 "fsspec>=0.8.5" numpy
-  "$REPO_DIR/.venv-asr/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchaudio
+  "$REPO_DIR/.venv-asr/bin/pip" install --extra-index-url "$OVERSEAARK_PYTORCH_INDEX" torch torchaudio
   "$REPO_DIR/.venv-asr/bin/pip" install \
     "nemo_toolkit[asr] @ git+https://github.com/NVIDIA-NeMo/NeMo.git@93b15b1f423ddc8e0d189810fdd8304091d9b1bd" \
     kaldialign soundfile
@@ -264,7 +264,7 @@ create_adapter_envs() {
   "$REPO_DIR/.venv-tts/bin/pip" install \
     filelock "typing-extensions>=4.10" "sympy>=1.13.3" \
     "networkx>=2.5.1" jinja2 numpy
-  "$REPO_DIR/.venv-tts/bin/pip" install --extra-index-url https://download.pytorch.org/whl/cu130 torch torchaudio
+  "$REPO_DIR/.venv-tts/bin/pip" install --extra-index-url "$OVERSEAARK_PYTORCH_INDEX" torch torchaudio
   "$REPO_DIR/.venv-tts/bin/pip" install --no-build-isolation \
     "nemo_toolkit[tts]==2.7.3" kaldialign soundfile
   prepare_open_jtalk_dictionary
