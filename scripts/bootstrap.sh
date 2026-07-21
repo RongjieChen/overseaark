@@ -235,6 +235,11 @@ create_adapter_envs() {
       UV_CONCURRENT_DOWNLOADS="${UV_CONCURRENT_DOWNLOADS:-4}" \
       "$REPO_DIR/.venv-cosmos/bin/uv" sync --frozen --group=cu130
   )
+  # The pinned framework imports iopath from its inference entrypoint but lists
+  # it only under the much larger training extra.
+  "$REPO_DIR/.venv-cosmos/bin/uv" pip install \
+    --python "$REPO_DIR/vendor/cosmos-framework/.venv/bin/python" \
+    --index-url "$OVERSEAARK_PYPI_INDEX" "iopath==0.1.10"
 
   # Nemotron 3.5 ASR targets NeMo 26.06/main while Magpie v2602 targets
   # the stable 25.11-era API. Keep their dependency graphs isolated.

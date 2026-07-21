@@ -70,6 +70,14 @@ def test_native_llama_runtime_is_pinned_cuda_accelerated_and_localhost_only() ->
     assert "docker run" not in scripts.lower()
 
 
+def test_cosmos_inference_dependency_is_installed_without_training_extra() -> None:
+    bootstrap = _read("scripts/bootstrap.sh")
+
+    assert '"iopath==0.1.10"' in bootstrap
+    assert "--group=cu130" in bootstrap
+    assert "cu130-train" not in bootstrap
+
+
 def test_asr_adapter_uses_generic_local_nemo_restore_and_language_tags() -> None:
     adapter = (
         Path(__file__).resolve().parents[2] / "scripts/adapters/asr_nemo.py"
