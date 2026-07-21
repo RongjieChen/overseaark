@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import importlib.util
+import sys
 from pathlib import Path
 
 
@@ -11,6 +13,21 @@ def _read(relative_path: str) -> str:
     return (Path(__file__).resolve().parents[2] / relative_path).read_text(
         encoding="utf-8"
     )
+
+
+def _load_llm_adapter():
+    adapter_dir = Path(__file__).resolve().parents[2] / "scripts" / "adapters"
+    sys.path.insert(0, str(adapter_dir))
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "overseaark_llm_step", adapter_dir / "llm_step.py"
+        )
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.remove(str(adapter_dir))
 
 
 def test_qwen_adapter_uses_local_llama_cpp_api_and_json_schema() -> None:
@@ -28,6 +45,23 @@ def test_qwen_adapter_uses_local_llama_cpp_api_and_json_schema() -> None:
     assert "_extract_task_result" in adapter
     assert "subprocess" not in adapter
     assert "OVERSEAARK_DOCKER" not in adapter
+
+
+def test_multilingual_schema_is_language_exact_and_has_a_complete_token_budget(
+    monkeypatch,
+) -> None:
+    adapter = _load_llm_adapter()
+    monkeypatch.delenv("OVERSEAARK_LLM_TOKENS", raising=False)
+
+    schema = adapter._schema_for_task(
+        "multilingual_copy", {"languages": ["zh", "en", "ja", "zh"]}
+    )
+    copy_schema = schema["properties"]["copy"]
+
+    assert copy_schema["required"] == ["zh", "en", "ja"]
+    assert set(copy_schema["properties"]) == {"zh", "en", "ja"}
+    assert copy_schema["additionalProperties"] is False
+    assert adapter._task_token_limit("multilingual_copy") == 3072
 
 
 def test_native_llama_runtime_is_pinned_cuda_accelerated_and_localhost_only() -> None:

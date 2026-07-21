@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import mimetypes
 import os
@@ -103,6 +104,43 @@ TASK_SCHEMAS = {
         "additionalProperties": False,
     },
 }
+TASK_TOKEN_LIMITS = {
+    "market_positioning": 768,
+    "buyer_persona": 1024,
+    "multilingual_copy": 3072,
+    "quality_packaging": 768,
+}
+
+
+def _schema_for_task(task: str, payload: dict[str, Any]) -> dict[str, Any]:
+    schema = copy.deepcopy(
+        TASK_SCHEMAS.get(
+            task,
+            {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+        )
+    )
+    if task == "multilingual_copy":
+        languages = list(dict.fromkeys(payload.get("languages") or ["zh", "en", "ja"]))
+        copy_schema = schema["properties"]["copy"]
+        localized_schema = copy_schema.pop("additionalProperties")
+        copy_schema.update(
+            {
+                "properties": {language: copy.deepcopy(localized_schema) for language in languages},
+                "required": languages,
+                "additionalProperties": False,
+            }
+        )
+    return schema
+
+
+def _task_token_limit(task: str) -> int:
+    configured = os.environ.get("OVERSEAARK_LLM_TOKENS")
+    return int(configured) if configured else TASK_TOKEN_LIMITS.get(task, 768)
 
 
 def _extract_task_result(text: str, task: str) -> dict[str, object]:
@@ -145,6 +183,12 @@ def _messages(payload: dict[str, Any], task: str, schema: dict[str, Any]) -> lis
         f"Output JSON Schema: {json.dumps(schema, ensure_ascii=False)}\n"
         f"Input JSON: {json.dumps(prompt_payload, ensure_ascii=False)}"
     )
+    if task == "multilingual_copy":
+        prompt += (
+            "\nUse exactly the requested language keys. Keep every field concise. "
+            "Each video_script must be natural speech lasting about 5 seconds: "
+            "at most 28 Chinese/Japanese characters or 16 English words."
+        )
     if not image_path:
         return [{"role": "user", "content": prompt}]
     image = require_path(Path(str(image_path)).resolve(), "campaign product image")
@@ -205,15 +249,7 @@ def _invoke_llama(payload: dict[str, Any]) -> dict[str, Any]:
 def main() -> None:
     payload = read_payload()
     task = str(payload.pop("task", "general"))
-    schema = TASK_SCHEMAS.get(
-        task,
-        {
-            "type": "object",
-            "properties": {"text": {"type": "string"}},
-            "required": ["text"],
-            "additionalProperties": False,
-        },
-    )
+    schema = _schema_for_task(task, payload)
     require_path(
         models_root() / "qwen/qwen3.6-35b-a3b-gguf/Qwen3.6-35B-A3B-Q4_K_M.gguf",
         "Qwen3.6-35B-A3B Q4_K_M GGUF",
@@ -221,7 +257,7 @@ def main() -> None:
     request = {
         "model": MODEL_ID,
         "messages": _messages(payload, task, schema),
-        "max_tokens": int(os.environ.get("OVERSEAARK_LLM_TOKENS", "512")),
+        "max_tokens": _task_token_limit(task),
         "temperature": 0.2,
         "top_p": 0.95,
         "chat_template_kwargs": {"enable_thinking": False},
@@ -237,7 +273,13 @@ def main() -> None:
         raise SystemExit(f"local llama.cpp response is missing assistant content: {response}") from exc
     if not isinstance(content, str):
         raise SystemExit("local llama.cpp assistant content is not text")
-    result = _extract_task_result(content, task)
+    try:
+        result = _extract_task_result(content, task)
+    except SystemExit as exc:
+        finish_reason = response.get("choices", [{}])[0].get("finish_reason", "unknown")
+        raise SystemExit(
+            f"{exc}; finish_reason={finish_reason}; content_characters={len(content)}"
+        ) from exc
     result.setdefault("model", MODEL_ID)
     write_result(result)
 
