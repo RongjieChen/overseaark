@@ -7,7 +7,7 @@ llama_install_ready() {
   [[ -x "$OVERSEAARK_LLAMA_SERVER" ]] || return 1
   [[ -d "$OVERSEAARK_LLAMA_CPP_DIR/.git" ]] || return 1
   [[ "$(git -C "$OVERSEAARK_LLAMA_CPP_DIR" rev-parse HEAD 2>/dev/null)" == "$OVERSEAARK_LLAMA_REVISION" ]] || return 1
-  "$OVERSEAARK_LLAMA_SERVER" --version 2>&1 | grep -Eqi 'llama|ggml' || return 1
+  "$OVERSEAARK_LLAMA_SERVER" --version 2>&1 | grep -Eq '^version:' || return 1
 }
 
 install_llama_cpp() {
