@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+from adapter_common import cuda_cleanup, models_root, read_payload, require_path, write_result
+
+LANGUAGE_PROMPTS = {
+    "auto": "auto",
+    "zh": "zh-CN",
+    "en": "en-US",
+    "ja": "ja-JP",
+}
+
+
+def _value(item: object, name: str, default: object = None) -> object:
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return getattr(item, name, default)
+
+
+def _segments(result: object, text: str) -> list[dict[str, object]]:
+    timestamp = _value(result, "timestamp", {})
+    if not isinstance(timestamp, dict):
+        return [{"start": 0.0, "end": 0.0, "text": text}]
+    words = timestamp.get("word") or timestamp.get("segment") or []
+    segments = []
+    for item in words:
+        if not isinstance(item, dict):
+            continue
+        segments.append(
+            {
+                "start": float(item.get("start", 0.0)),
+                "end": float(item.get("end", 0.0)),
+                "text": str(item.get("word") or item.get("segment") or item.get("text") or ""),
+            }
+        )
+    return segments or [{"start": 0.0, "end": 0.0, "text": text}]
+
+
+def main() -> None:
+    payload = read_payload()
+    model_path = require_path(
+        models_root() / "nvidia/nemotron-3.5-asr-streaming-0.6b/nemotron-3.5-asr-streaming-0.6b.nemo",
+        "Nemotron ASR .nemo",
+    )
+    try:
+        from nemo.collections.asr.models.rnnt_bpe_models_prompt import EncDecRNNTBPEModelWithPrompt
+    except Exception as exc:
+        raise SystemExit("ASR adapter requires NVIDIA NeMo installed in the ASR environment") from exc
+
+    language = str(payload.get("language") or "auto")
+    if language not in LANGUAGE_PROMPTS:
+        raise SystemExit(f"unsupported ASR language: {language}")
+    model = EncDecRNNTBPEModelWithPrompt.restore_from(str(model_path), map_location="cuda")
+    result = model.transcribe(
+        [payload["audio_path"]],
+        return_hypotheses=True,
+        timestamps=True,
+        target_lang=LANGUAGE_PROMPTS[language],
+    )[0]
+    text = str(_value(result, "text", result if isinstance(result, str) else ""))
+    detected = str(_value(result, "language", _value(result, "lang", language)))
+    if detected in LANGUAGE_PROMPTS.values():
+        detected = detected.split("-", 1)[0]
+    write_result({
+        "text": text,
+        "language": detected,
+        "detected_language": detected,
+        "segments": _segments(result, text),
+        "model": str(model_path),
+    })
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    finally:
+        cuda_cleanup()

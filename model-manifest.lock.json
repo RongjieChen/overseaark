@@ -1,0 +1,235 @@
+{
+  "schema_version": 1,
+  "target": {
+    "os": "Ubuntu 24.04",
+    "arch": "aarch64",
+    "cuda": "13",
+    "runtime_root": "/home/Developer/overseaark",
+    "models_dir": "/home/Developer/overseaark-models",
+    "data_dir": "/home/Developer/overseaark-data"
+  },
+  "models": [
+    {
+      "id": "stepfun-step-3.7-flash-gguf-q3_k_m",
+      "provider": "huggingface",
+      "source": "stepfun-ai/Step-3.7-Flash-GGUF",
+      "revision": "0b69336d2fd2adfdef9c66e425f7778196c31482",
+      "local_dir": "stepfun/step-3.7-flash",
+      "license": "Apache-2.0",
+      "adopt_from": "/root/models/step-3.7-flash",
+      "required": true,
+      "allow_incomplete": false,
+      "notes": "Q3_K_M shard 2 must be complete; historical incomplete shard size must not pass verification.",
+      "files": [
+        {
+          "path": "Q3_K_M/Step-3.7-flash-Q3_K_M-00001-of-00003.gguf",
+          "size": 46768409504,
+          "sha256": "1f79f2c30fbbc10cd180589288e0a047b72fc56a27fd7d85444f70351bd9521d",
+          "x_linked_etag": "1f79f2c30fbbc10cd180589288e0a047b72fc56a27fd7d85444f70351bd9521d",
+          "required": true
+        },
+        {
+          "path": "Q3_K_M/Step-3.7-flash-Q3_K_M-00002-of-00003.gguf",
+          "size": 46381975392,
+          "sha256": "c0bd348948b5c15316a54c6880d5868e5643066c930bc91045a309e9dd359618",
+          "x_linked_etag": "c0bd348948b5c15316a54c6880d5868e5643066c930bc91045a309e9dd359618",
+          "required": true,
+          "known_incomplete_guard": "reject any local shard 2 whose size is not exactly 46381975392 bytes"
+        },
+        {
+          "path": "Q3_K_M/Step-3.7-flash-Q3_K_M-00003-of-00003.gguf",
+          "size": 651059456,
+          "sha256": "65ab284b7c0cf8a6ba45dd0b0d0b354625f2a58a487c0210fc14e4002d87f833",
+          "x_linked_etag": "65ab284b7c0cf8a6ba45dd0b0d0b354625f2a58a487c0210fc14e4002d87f833",
+          "required": true
+        },
+        {
+          "path": "mmproj-step3.7-flash-f16.gguf",
+          "size": 3972828768,
+          "sha256": "5f25d11f92235c69682ca820af5f4cb125ae1142c8c33c018d0b3c9000a2ec1c",
+          "x_linked_etag": "5f25d11f92235c69682ca820af5f4cb125ae1142c8c33c018d0b3c9000a2ec1c",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "step1x-edit-v1p2",
+      "provider": "huggingface",
+      "source": "stepfun-ai/Step1X-Edit-v1p2",
+      "revision": "ca85b97fd19f2235dc0d6fd3633d1319f169e149",
+      "local_dir": "stepfun/step1x-edit-v1p2",
+      "license": "Apache-2.0",
+      "required": true,
+      "allow_incomplete": false,
+      "notes": "Image adapter uses transformers==4.55.0 and Peyton-Chen/diffusers branch step1xedit_v1p2 with CPU offload on DGX Spark.",
+      "files": [
+        {
+          "path": "text_encoder/model-00001-of-00004.safetensors",
+          "size": 4968243304,
+          "sha256": "f4b54b9f0b843a1837a4e3c26cee7dd62d6697a6d7592d5ca2d005914aed5591",
+          "required": true
+        },
+        {
+          "path": "text_encoder/model-00002-of-00004.safetensors",
+          "size": 4991495816,
+          "sha256": "c9fb219383324f8eaf7391ce5c084b5cad6c387d1806e5d10981222a32a7f64c",
+          "required": true
+        },
+        {
+          "path": "text_encoder/model-00003-of-00004.safetensors",
+          "size": 4932751040,
+          "sha256": "ca9c800da09e936d35652e78ee0eb178f9f5efe8c05392a6a86a9eb15536a519",
+          "required": true
+        },
+        {
+          "path": "text_encoder/model-00004-of-00004.safetensors",
+          "size": 1691924384,
+          "sha256": "310ce8de76894becbbdaeb9b91788dbbe96c48fd7e008ddcaedf5cd5ad58c8d4",
+          "required": true
+        },
+        {
+          "path": "transformer/diffusion_pytorch_model-00001-of-00003.safetensors",
+          "size": 9978548592,
+          "sha256": "4c43a9758a7347e1e3c6815dd8b042a4cb24ad1df882c86be17c66a2659bbbb3",
+          "required": true
+        },
+        {
+          "path": "transformer/diffusion_pytorch_model-00002-of-00003.safetensors",
+          "size": 9987127872,
+          "sha256": "9f8d55ff8eabe2bee3329e0d4bb7a55e660c4a52d65faef56d5b6aa0d71c9caf",
+          "required": true
+        },
+        {
+          "path": "transformer/diffusion_pytorch_model-00003-of-00003.safetensors",
+          "size": 4919434840,
+          "sha256": "fe66b345c4c34e7c93830a87e29dc140e587fc0488f22cb7f0c6459d1b325f45",
+          "required": true
+        },
+        {
+          "path": "vae/diffusion_pytorch_model.safetensors",
+          "size": 335306212,
+          "sha256": "f4487eaa8df19a5254ce83a01d402e93d2b6acba769ed9bfeddc6849cd808745",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cosmos-predict2-0.6b-text2image",
+      "provider": "modelscope",
+      "source": "nv-community/Cosmos-Predict2-0.6B-Text2Image",
+      "official_source": "nvidia/Cosmos-Predict2-0.6B-Text2Image",
+      "revision": "master",
+      "upstream_revision": "dd55b6858b22ad569976bff207880b8fea839da7",
+      "local_dir": "nvidia/cosmos-predict2-0.6b-text2image",
+      "license": "NVIDIA Open Model License",
+      "required": false,
+      "allow_incomplete": false,
+      "files": [
+        {
+          "path": "model.pt",
+          "size": 1195209249,
+          "sha256": "566cf8b4eb8409a645cffc1f550974608170cc7ba2f5ba7a05a85adeb379029d",
+          "required": true
+        },
+        {
+          "path": "model_distilled.pt",
+          "size": 1195206483,
+          "sha256": "af989face1151b82888ea67bb8ba2fc260679503818a61bc130d6dfdf0f85a2a",
+          "required": true
+        },
+        {
+          "path": "model_fast_tokenizer.pt",
+          "size": 1195209447,
+          "sha256": "a0b2d0c993e88b818bf8e389dce14d58ac901be7092a72b4adf79ca065bd6742",
+          "required": true
+        },
+        {
+          "path": "tokenizer/tokenizer.pth",
+          "size": 507609880,
+          "sha256": "38071ab59bd94681c686fa51d75a1968f64e470262043be31f7a094e442fd981",
+          "required": true
+        },
+        {
+          "path": "tokenizer_fast/tokenizer.pth",
+          "size": 230994532,
+          "sha256": "6a667c56e9f04022a90966e8715935a83e2cd1ecf8a433db6b1e3ce56ae40282",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cosmos3-edge",
+      "provider": "modelscope",
+      "source": "nv-community/Cosmos3-Edge",
+      "official_source": "nvidia/Cosmos3-Edge",
+      "revision": "master",
+      "upstream_revision": "6f58f6b4c91288838e60b6bcb2cc45d997e961de",
+      "local_dir": "nvidia/cosmos3-edge",
+      "license": "NVIDIA Open Model Development Weight License 1.1",
+      "required": true,
+      "allow_incomplete": false,
+      "files": [
+        {
+          "path": "transformer/diffusion_pytorch_model-00001-of-00002.safetensors",
+          "size": 5000039696,
+          "sha256": "f74b228d29f844a58bef266f3afc2d695fdc7e00f0d18b618f5889966586891b",
+          "required": true
+        },
+        {
+          "path": "transformer/diffusion_pytorch_model-00002-of-00002.safetensors",
+          "size": 1739335880,
+          "sha256": "96e9031a940699710dd11b3b81345c22418471ad82bb838abe40f4f03eb86503",
+          "required": true
+        },
+        {
+          "path": "vae/diffusion_pytorch_model.safetensors",
+          "size": 1409400600,
+          "sha256": "230496cb59ff85bc9c040487737c4062480cb61c71e697b197b4c30142f2a0da",
+          "required": true
+        },
+        {
+          "path": "vision_encoder/model.safetensors",
+          "size": 978739880,
+          "sha256": "2180ad739ecc96b5c1e9386892d3c5c08bfa42b9cdab9aabc53b028671db89b3",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "nemotron-asr-streaming-0.6b",
+      "provider": "huggingface",
+      "source": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+      "revision": "f3d333391852ba876df169dcc9ba902d25b6ab0b",
+      "local_dir": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+      "license": "NVIDIA Open Model Development Weight License 1.1",
+      "required": true,
+      "allow_incomplete": false,
+      "files": [
+        {
+          "path": "nemotron-3.5-asr-streaming-0.6b.nemo",
+          "size": 2368284501,
+          "sha256": "210214ed94039bf6bfbb9a047c7fa289628db75b103e2bf6381fa78285436a74",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "magpie-tts-multilingual-357m",
+      "provider": "huggingface",
+      "source": "nvidia/magpie_tts_multilingual_357m",
+      "revision": "34d7e40da85cabc97f92198889b65cea27bc7fd1",
+      "local_dir": "nvidia/magpie_tts_multilingual_357m",
+      "license": "NVIDIA Open Model License",
+      "required": true,
+      "allow_incomplete": false,
+      "files": [
+        {
+          "path": "magpie_tts_multilingual_357m.nemo",
+          "size": 1208883200,
+          "sha256": "3111c41d88de500dbc0cee70802c0ae7fb54915c46f29a2391a4510081f76a94",
+          "required": true
+        }
+      ]
+    }
+  ]
+}
