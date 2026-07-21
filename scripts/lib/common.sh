@@ -7,10 +7,34 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 load_env() {
   if [[ -f "$REPO_DIR/.env" ]]; then
+    # Shell-provided values take precedence over the deployment file. This is
+    # required for safe one-off mock tests and maintenance commands on a host
+    # whose persistent .env selects command-mode inference.
+    local override_names=(
+      OVERSEAARK_ROOT OVERSEAARK_MODELS_DIR OVERSEAARK_DATA_DIR
+      OVERSEAARK_LOG_DIR OVERSEAARK_PID_DIR OVERSEAARK_HOST
+      OVERSEAARK_BACKEND_PORT OVERSEAARK_FRONTEND_PORT
+      OVERSEAARK_SKIP_MODELS OVERSEAARK_MOCK_MODE
+      OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP OVERSEAARK_SYNC_OPTIONAL_MODELS
+      OVERSEAARK_ADAPTER_MODE OVERSEAARK_ALLOW_DEGRADED_VIDEO
+      MODELSCOPE_ENDPOINT HF_ENDPOINT TRANSFORMERS_OFFLINE
+      HF_HUB_OFFLINE HF_DATASETS_OFFLINE NO_PROXY no_proxy
+    )
+    local saved_names=() saved_values=() name index
+    for name in "${override_names[@]}"; do
+      if printenv "$name" >/dev/null 2>&1; then
+        saved_names+=("$name")
+        saved_values+=("${!name}")
+      fi
+    done
     set -a
     # shellcheck disable=SC1091
     source "$REPO_DIR/.env"
     set +a
+    for index in "${!saved_names[@]}"; do
+      printf -v "${saved_names[$index]}" '%s' "${saved_values[$index]}"
+      export "${saved_names[$index]}"
+    done
   fi
 
   local default_models_dir="$REPO_DIR/overseaark-models"
