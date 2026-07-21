@@ -23,13 +23,17 @@ install_llama_cpp() {
   have c++ || die "a C++ compiler is required to build llama.cpp"
   have nvcc || [[ -x /usr/local/cuda/bin/nvcc ]] || die "CUDA nvcc is required to build llama.cpp"
 
+  local repository_url="https://github.com/ggml-org/llama.cpp.git"
+  if [[ -n "$OVERSEAARK_GITHUB_GIT_PREFIX" ]]; then
+    repository_url="${OVERSEAARK_GITHUB_GIT_PREFIX%/}/ggml-org/llama.cpp.git"
+  fi
   mkdir -p "$(dirname "$OVERSEAARK_LLAMA_CPP_DIR")"
   if [[ ! -d "$OVERSEAARK_LLAMA_CPP_DIR/.git" ]]; then
     log "cloning llama.cpp"
-    git clone https://github.com/ggml-org/llama.cpp.git "$OVERSEAARK_LLAMA_CPP_DIR"
+    git clone --filter=blob:none --no-checkout "$repository_url" "$OVERSEAARK_LLAMA_CPP_DIR"
   fi
   if ! git -C "$OVERSEAARK_LLAMA_CPP_DIR" cat-file -e "${OVERSEAARK_LLAMA_REVISION}^{commit}"; then
-    git -C "$OVERSEAARK_LLAMA_CPP_DIR" fetch --depth 1 origin "$OVERSEAARK_LLAMA_REVISION"
+    git -C "$OVERSEAARK_LLAMA_CPP_DIR" fetch --depth 1 "$repository_url" "$OVERSEAARK_LLAMA_REVISION"
   fi
   git -C "$OVERSEAARK_LLAMA_CPP_DIR" checkout --detach "$OVERSEAARK_LLAMA_REVISION"
 
