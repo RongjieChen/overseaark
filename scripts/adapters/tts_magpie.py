@@ -53,6 +53,11 @@ def main() -> None:
         models_root() / "nvidia/magpie_tts_multilingual_357m/magpie_tts_multilingual_357m.nemo",
         "Magpie TTS .nemo",
     )
+    codec_path = require_path(
+        models_root()
+        / "nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps/nemo-nano-codec-22khz-1.89kbps-21.5fps.nemo",
+        "Magpie NanoCodec .nemo",
+    )
     output_path = Path(payload["output_path"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     speaker = payload.get("speaker", "Sofia")
@@ -63,7 +68,13 @@ def main() -> None:
     except Exception as exc:
         raise SystemExit("TTS adapter requires NVIDIA NeMo and soundfile installed in the TTS environment") from exc
 
-    model = MagpieTTSModel.restore_from(str(model_path), map_location="cuda")
+    config = MagpieTTSModel.restore_from(str(model_path), return_config=True)
+    config.codecmodel_path = str(codec_path)
+    model = MagpieTTSModel.restore_from(
+        str(model_path),
+        override_config_path=config,
+        map_location="cuda",
+    )
     import numpy as np
 
     language = str(payload.get("language", "en"))

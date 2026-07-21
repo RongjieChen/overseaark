@@ -78,3 +78,21 @@ def test_asr_adapter_uses_generic_local_nemo_restore_and_language_tags() -> None
     assert "nemo_asr.models.ASRModel.restore_from" in adapter
     assert "tagged_language" in adapter
     assert "from_pretrained" not in adapter
+
+
+def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
+    root = Path(__file__).resolve().parents[2]
+    adapter = _read("scripts/adapters/tts_magpie.py")
+    manifest = json.loads((root / "model-manifest.lock.json").read_text(encoding="utf-8"))
+    codec = next(
+        model
+        for model in manifest["models"]
+        if model["id"] == "nemo-nano-codec-22khz-1.89kbps-21.5fps"
+    )
+
+    assert 'config.codecmodel_path = str(codec_path)' in adapter
+    assert "override_config_path=config" in adapter
+    assert codec["revision"] == "3c482a402a3c4cf33690a2c0f0a7d41afea6bd6a"
+    assert codec["files"][0]["sha256"] == (
+        "28c2518de3e3d5a2c7d9bca40a7ebc0644eb76c60b890970365325bdd8e9f099"
+    )
