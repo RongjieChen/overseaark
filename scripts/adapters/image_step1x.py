@@ -83,14 +83,29 @@ def main() -> None:
         pipe.to("cuda")
     source = Image.open(payload["source_image"]).convert("RGB")
     generator = torch.Generator(device="cpu").manual_seed(int(payload.get("seed", 0)))
+    num_inference_steps = int(
+        payload.get("num_inference_steps", os.environ.get("OVERSEAARK_STEP1X_STEPS", "12"))
+    )
+    thinking = bool(
+        payload.get(
+            "enable_thinking_mode",
+            os.environ.get("OVERSEAARK_STEP1X_THINKING", "0") == "1",
+        )
+    )
+    reflection = bool(
+        payload.get(
+            "enable_reflection_mode",
+            os.environ.get("OVERSEAARK_STEP1X_REFLECTION", "0") == "1",
+        )
+    )
     pipe_output = pipe(
         prompt=payload["prompt"],
         image=source,
-        num_inference_steps=int(payload.get("num_inference_steps", 50)),
+        num_inference_steps=num_inference_steps,
         true_cfg_scale=float(payload.get("true_cfg_scale", 6.0)),
         generator=generator,
-        enable_thinking_mode=bool(payload.get("enable_thinking_mode", True)),
-        enable_reflection_mode=bool(payload.get("enable_reflection_mode", True)),
+        enable_thinking_mode=thinking,
+        enable_reflection_mode=reflection,
     )
     image = _overlay_headline(pipe_output.final_images[0], str(payload.get("overlay_text", "")))
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,6 +116,9 @@ def main() -> None:
             "model": str(model_dir),
             "fp8_layerwise": fp8_layerwise,
             "cpu_offload": cpu_offload,
+            "num_inference_steps": num_inference_steps,
+            "thinking": thinking,
+            "reflection": reflection,
         }
     )
 
