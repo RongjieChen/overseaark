@@ -93,7 +93,10 @@ vllm_command() {
   local api_key runtime_path
   api_key="$(<"$OVERSEAARK_VLLM_API_KEY_FILE")"
   runtime_path="$OVERSEAARK_VLLM_ENV_DIR/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-  printf 'exec env PATH=%q CUDA_HOME=/usr/local/cuda TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 DO_NOT_TRACK=1 VLLM_NO_USAGE_STATS=1 VLLM_API_KEY=%q %q serve %q' \
+  # FlashInfer can otherwise launch one nvcc process per generated kernel. On
+  # unified-memory systems that lets JIT compilation contend with the loaded
+  # model and the Linux OOM killer can terminate individual compiler jobs.
+  printf 'exec env PATH=%q CUDA_HOME=/usr/local/cuda TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas MAX_JOBS=1 CMAKE_BUILD_PARALLEL_LEVEL=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 DO_NOT_TRACK=1 VLLM_NO_USAGE_STATS=1 VLLM_API_KEY=%q %q serve %q' \
     "$runtime_path" "$api_key" "$OVERSEAARK_VLLM_BIN" "$OVERSEAARK_VLLM_MODEL_DIR"
   printf ' --served-model-name %q --host 127.0.0.1 --port %q' \
     "$OVERSEAARK_VLLM_SERVED_MODEL" "$OVERSEAARK_VLLM_PORT"

@@ -92,6 +92,8 @@ def test_native_vllm_runtime_is_pinned_cuda_accelerated_and_localhost_only() -> 
     assert "vllm-0.25.1%2Bcu129-cp38-abi3-manylinux_2_28_aarch64.whl" in common
     assert "VLLM_API_KEY=%q" in runtime
     assert "PATH=%q CUDA_HOME=/usr/local/cuda TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas" in runtime
+    assert "MAX_JOBS=1" in runtime
+    assert "CMAKE_BUILD_PARALLEL_LEVEL=1" in runtime
     assert "serve %q" in runtime
     assert "--served-model-name %q" in runtime
     assert "--host 127.0.0.1" in runtime
