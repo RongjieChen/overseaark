@@ -50,7 +50,7 @@ install_llama_cpp() {
     -DLLAMA_CURL=OFF \
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=OFF \
-    -DLLAMA_BUILD_TOOLS=OFF \
+    -DLLAMA_BUILD_TOOLS=ON \
     -DLLAMA_BUILD_SERVER=ON
   cmake --build "$OVERSEAARK_LLAMA_BUILD_DIR" --target llama-server -j "${OVERSEAARK_BUILD_JOBS:-$(nproc)}"
   llama_install_ready || die "llama.cpp built but pinned CUDA server verification failed"
