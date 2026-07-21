@@ -143,7 +143,8 @@ if remove_invalid_model_files path-traversal "$fake_model_root/example" >/dev/nu
 fi
 [[ -f "$tmp_dir/victim.bin" ]]
 
-# Fault: a first-run repo-local llama build must replace the stale root default.
+# Host variance: keep a valid root install, but replace a stale root default
+# with a first-run repo-local llama build.
 original_repo_dir="$REPO_DIR"
 REPO_DIR="$tmp_dir/fresh-repo"
 mkdir -p "$REPO_DIR/vendor/llama.cpp/build/bin"
@@ -152,7 +153,11 @@ chmod +x "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli"
 OVERSEAARK_LLAMA_CLI=/root/llama.cpp/build/bin/llama-cli
 OVERSEAARK_ADAPTER_MODE=command
 local_runtime_env
-[[ "$OVERSEAARK_LLAMA_CLI" == "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli" ]]
+if [[ -x /root/llama.cpp/build/bin/llama-cli ]]; then
+  [[ "$OVERSEAARK_LLAMA_CLI" == "/root/llama.cpp/build/bin/llama-cli" ]]
+else
+  [[ "$OVERSEAARK_LLAMA_CLI" == "$REPO_DIR/vendor/llama.cpp/build/bin/llama-cli" ]]
+fi
 REPO_DIR="$original_repo_dir"
 OVERSEAARK_ADAPTER_MODE=mock
 unset OVERSEAARK_LLAMA_CLI
