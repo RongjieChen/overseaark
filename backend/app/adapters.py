@@ -328,8 +328,19 @@ async def _run_command(command: str, payload: dict[str, Any]) -> dict[str, Any]:
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    timeout = float(os.environ.get("OVERSEAARK_ADAPTER_TIMEOUT", "1200"))
+    if timeout <= 0:
+        await _terminate_process_group(proc)
+        raise AdapterError("OVERSEAARK_ADAPTER_TIMEOUT must be greater than zero")
     try:
-        stdout, stderr = await proc.communicate(json.dumps(payload).encode("utf-8"))
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(json.dumps(payload).encode("utf-8")), timeout=timeout
+        )
+    except TimeoutError as exc:
+        await _terminate_process_group(proc)
+        raise AdapterError(
+            f"adapter timed out after {timeout:g}s; its process group was terminated"
+        ) from exc
     except asyncio.CancelledError:
         await _terminate_process_group(proc)
         raise

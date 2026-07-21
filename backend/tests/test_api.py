@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import sys
 import zipfile
 from collections import defaultdict
 from pathlib import Path
@@ -10,7 +11,14 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.adapters import MockModelHooks, ModelManager, PNG_1X1, build_model_manager
+from app.adapters import (
+    AdapterError,
+    MockModelHooks,
+    ModelManager,
+    PNG_1X1,
+    _run_command,
+    build_model_manager,
+)
 from app.main import TERMINAL_STATUSES, create_app
 from app.models import StageName
 from app.settings import Settings
@@ -18,6 +26,17 @@ from app.settings import Settings
 
 def make_app(tmp_path: Path):
     return create_app(Settings(data_dir=tmp_path, adapter_mode="mock"))
+
+
+@pytest.mark.asyncio
+async def test_command_adapter_timeout_terminates_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OVERSEAARK_ADAPTER_TIMEOUT", "0.05")
+    command = f'{sys.executable} -c "import time; time.sleep(30)"'
+
+    with pytest.raises(AdapterError, match="process group was terminated"):
+        await _run_command(command, {})
 
 
 async def wait_for_terminal(client: AsyncClient, campaign_id: str) -> dict:

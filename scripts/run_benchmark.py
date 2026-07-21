@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -29,23 +30,55 @@ VOICES = {
 }
 
 
-def run_adapter(command_env: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _terminate_process_group(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
+
+
+def run_adapter(
+    command_env: str,
+    payload: dict[str, Any],
+    *,
+    extra_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
     command = os.environ.get(command_env)
     if not command:
         raise RuntimeError(f"missing {command_env}")
     started = time.perf_counter()
-    process = subprocess.run(
+    timeout = int(os.environ.get("OVERSEAARK_BENCH_TIMEOUT", "1200"))
+    process = subprocess.Popen(
         shlex.split(command),
-        input=json.dumps(payload, ensure_ascii=False),
+        stdin=subprocess.PIPE,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=int(os.environ.get("OVERSEAARK_BENCH_TIMEOUT", "1200")),
-        check=False,
+        env={**os.environ, **(extra_env or {})},
+        start_new_session=True,
     )
+    try:
+        stdout, stderr = process.communicate(
+            json.dumps(payload, ensure_ascii=False), timeout=timeout
+        )
+    except subprocess.TimeoutExpired as exc:
+        _terminate_process_group(process)
+        raise RuntimeError(
+            f"{command_env} timed out after {timeout}s; its process group was terminated"
+        ) from exc
     if process.returncode != 0:
-        raise RuntimeError(process.stderr.strip() or f"{command_env} failed")
-    result = json.loads(process.stdout)
+        raise RuntimeError(stderr.strip() or f"{command_env} failed")
+    result = json.loads(stdout)
     if not isinstance(result, dict):
         raise RuntimeError(f"{command_env} returned non-object JSON")
     result["wall_seconds"] = round(time.perf_counter() - started, 3)
@@ -160,6 +193,7 @@ def main() -> int:
                 "languages": ["zh", "en", "ja"],
                 "product_image_path": str(product),
             },
+            extra_env={"OVERSEAARK_LLM_TOKENS": "192"},
         )
     elif args.modality == "image":
         result = image_benchmark(workdir)
