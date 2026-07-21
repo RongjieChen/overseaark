@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import re
+
 from adapter_common import cuda_cleanup, models_root, read_payload, require_path, write_result
 
 LANGUAGE_PROMPTS = {
@@ -43,14 +45,14 @@ def main() -> None:
         "Nemotron ASR .nemo",
     )
     try:
-        from nemo.collections.asr.models.rnnt_bpe_models_prompt import EncDecRNNTBPEModelWithPrompt
+        import nemo.collections.asr as nemo_asr
     except Exception as exc:
         raise SystemExit("ASR adapter requires NVIDIA NeMo installed in the ASR environment") from exc
 
     language = str(payload.get("language") or "auto")
     if language not in LANGUAGE_PROMPTS:
         raise SystemExit(f"unsupported ASR language: {language}")
-    model = EncDecRNNTBPEModelWithPrompt.restore_from(str(model_path), map_location="cuda")
+    model = nemo_asr.models.ASRModel.restore_from(str(model_path), map_location="cuda")
     result = model.transcribe(
         [payload["audio_path"]],
         return_hypotheses=True,
@@ -58,7 +60,13 @@ def main() -> None:
         target_lang=LANGUAGE_PROMPTS[language],
     )[0]
     text = str(_value(result, "text", result if isinstance(result, str) else ""))
-    detected = str(_value(result, "language", _value(result, "lang", language)))
+    tag = re.search(r"<([a-z]{2}(?:-[A-Z]{2})?)>\s*$", text)
+    tagged_language = tag.group(1) if tag else None
+    if tag:
+        text = text[: tag.start()].rstrip()
+    detected = str(
+        _value(result, "language", _value(result, "lang", tagged_language or language))
+    )
     if detected in LANGUAGE_PROMPTS.values():
         detected = detected.split("-", 1)[0]
     write_result({
