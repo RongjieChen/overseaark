@@ -109,6 +109,29 @@ adopt_existing() {
   return 0
 }
 
+model_files_complete() {
+  local id="$1" dest="$2"
+  local py
+  py="$(python_bin)" || return 1
+  "$py" - "$manifest" "$id" "$dest" <<'PY'
+import glob, json, os, sys
+
+manifest_path, model_id, root = sys.argv[1:]
+data = json.load(open(manifest_path, encoding="utf-8"))
+model = next(item for item in data["models"] if item["id"] == model_id)
+files = [item for item in model.get("files", []) if item.get("required", True)]
+if not files:
+    raise SystemExit(0 if os.path.isdir(root) and any(os.scandir(root)) else 1)
+for item in files:
+    matches = glob.glob(os.path.join(root, item["path"]))
+    if not matches:
+        raise SystemExit(1)
+    expected_size = item.get("size")
+    if expected_size is not None and os.path.getsize(matches[0]) != int(expected_size):
+        raise SystemExit(1)
+PY
+}
+
 sync_models() {
   ensure_dirs
   if is_truthy "$OVERSEAARK_SKIP_MODELS"; then
@@ -129,6 +152,10 @@ sync_models() {
     fi
     local dest="$OVERSEAARK_MODELS_DIR/$local_dir"
     adopt_existing "$adopt_from" "$dest" || mkdir -p "$dest"
+    if model_files_complete "$id" "$dest"; then
+      log "locked model files already complete for $id; skipping network sync"
+      continue
+    fi
     log "syncing $id from $provider:$source@$revision"
     case "$provider" in
       modelscope) sync_modelscope "$source" "$revision" "$dest" "$includes" ;;
