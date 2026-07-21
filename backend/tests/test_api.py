@@ -100,7 +100,7 @@ async def test_health_models_and_uploaded_audio_transcription(tmp_path: Path) ->
     assert health.json()["status"] == "ok"
     assert models.status_code == 200
     assert models.json() == {
-        "llm": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+        "llm": "ggml-org/Qwen3.6-35B-A3B-GGUF",
         "image": "stepfun-ai/Step1X-Edit-v1p2",
         "video": "nvidia/Cosmos3-Edge",
         "asr": "nvidia/nemotron-3.5-asr-streaming-0.6b",

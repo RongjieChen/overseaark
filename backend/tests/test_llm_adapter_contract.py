@@ -4,8 +4,7 @@ import json
 from pathlib import Path
 
 
-VLLM_VERSION = "0.25.1"
-VLLM_WHEEL_SHA256 = "bdffbe35b2c1ab8f2a9dcc337b657261d9b192c92c217e5a2f98a8835fe78daa"
+LLAMA_REVISION = "76f46ad29d61fd8c1401e8221842934bf62a6064"
 
 
 def _read(relative_path: str) -> str:
@@ -14,7 +13,7 @@ def _read(relative_path: str) -> str:
     )
 
 
-def test_qwen_adapter_uses_local_native_vllm_api_and_json_schema() -> None:
+def test_qwen_adapter_uses_local_llama_cpp_api_and_json_schema() -> None:
     adapter = _read("scripts/adapters/llm_step.py")
 
     assert "OVERSEAARK_LLM_BASE_URL" in adapter
@@ -22,41 +21,45 @@ def test_qwen_adapter_uses_local_native_vllm_api_and_json_schema() -> None:
     assert "urllib.request.urlopen" in adapter
     assert '"type": "image_url"' in adapter
     assert "Output JSON Schema" in adapter
-    assert '"structured_outputs": {"json": schema}' in adapter
+    assert '"type": "json_schema"' in adapter
+    assert '"json_schema": {"name": task, "strict": True, "schema": schema}' in adapter
     assert '"enable_thinking": False' in adapter
     assert "_extract_task_result" in adapter
     assert "subprocess" not in adapter
     assert "OVERSEAARK_DOCKER" not in adapter
 
 
-def test_native_vllm_runtime_is_pinned_cuda_accelerated_and_localhost_only() -> None:
+def test_native_llama_runtime_is_pinned_cuda_accelerated_and_localhost_only() -> None:
     root = Path(__file__).resolve().parents[2]
     common = _read("scripts/lib/common.sh")
     bootstrap = _read("scripts/bootstrap.sh")
     lifecycle = _read("scripts/lifecycle.sh")
-    runtime = _read("scripts/vllm.sh")
+    runtime = _read("scripts/llama_server.sh")
     manifest = json.loads((root / "model-manifest.lock.json").read_text(encoding="utf-8"))
     scripts = "\n".join([common, bootstrap, lifecycle, runtime])
 
-    assert f'OVERSEAARK_VLLM_VERSION="${{OVERSEAARK_VLLM_VERSION:-{VLLM_VERSION}}}"' in common
-    assert VLLM_WHEEL_SHA256 in common
-    assert "manylinux_2_28_aarch64.whl" in common
-    assert 'bash "$SCRIPT_DIR/vllm.sh" install' in bootstrap
-    assert "torch.cuda.is_available()" in runtime
-    assert "--quantization modelopt" in runtime
-    assert "--attention-backend flashinfer" in runtime
-    assert "--moe-backend marlin" in runtime
-    assert "--kv-cache-dtype fp8" in runtime
+    assert LLAMA_REVISION in common
+    assert 'bash "$SCRIPT_DIR/llama_server.sh" install' in bootstrap
+    assert "-DGGML_CUDA=ON" in runtime
+    assert "-DLLAMA_CURL=OFF" in runtime
+    assert "--model %q --mmproj %q" in runtime
+    assert "--gpu-layers all" in runtime
+    assert "--flash-attn on" in runtime
+    assert "--reasoning off" in runtime
     assert "--host 127.0.0.1" in runtime
-    assert "VLLM_NO_USAGE_STATS=1" in runtime
     assert "HF_HUB_OFFLINE=1" in runtime
-    assert "start_vllm" in lifecycle
+    assert "start_llama" in lifecycle
     assert "OVERSEAARK_LLM_BASE_URL" in common
-    assert "http://127.0.0.1:$OVERSEAARK_VLLM_PORT" in common
+    assert "http://127.0.0.1:$OVERSEAARK_LLAMA_PORT" in common
 
     primary = manifest["models"][0]
-    assert primary["source"] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
-    assert primary["revision"] == "491c2f1ea524c639598bf8fa787a93fed5a6fbce"
+    assert primary["provider"] == "modelscope"
+    assert primary["source"] == "ggml-org/Qwen3.6-35B-A3B-GGUF"
+    assert primary["revision"] == "37b9ed4ed8b3942a5ac69bffb490a5d25acdad4e"
+    assert {item["path"] for item in primary["files"]} == {
+        "Qwen3.6-35B-A3B-Q4_K_M.gguf",
+        "mmproj-Qwen3.6-35B-A3B-BF16.gguf",
+    }
     assert primary["required"] is True
 
     assert "OVERSEAARK_DOCKER" not in scripts

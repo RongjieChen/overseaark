@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
-source "$SCRIPT_DIR/vllm.sh"
+source "$SCRIPT_DIR/llama_server.sh"
 
 ensure_dirs
 failures=0
@@ -40,8 +40,9 @@ check_warn "python3 available" have python3
 check_warn "npm available for frontend builds" have npm
 check_warn "nvidia-smi available" have nvidia-smi
 if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
-  check "native vLLM $OVERSEAARK_VLLM_VERSION with CUDA available" vllm_install_ready
-  check "native vLLM model directory present" test -f "$OVERSEAARK_VLLM_MODEL_DIR/config.json"
+  check "pinned CUDA llama.cpp available" llama_install_ready
+  check "Qwen3.6 Q4_K_M GGUF present" test -f "$OVERSEAARK_LLAMA_MODEL"
+  check "Qwen3.6 vision mmproj present" test -f "$OVERSEAARK_LLAMA_MMPROJ"
 fi
 
 if have uname; then

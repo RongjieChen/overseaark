@@ -10,141 +10,26 @@
   },
   "models": [
     {
-      "id": "nvidia-qwen3.6-35b-a3b-nvfp4",
-      "provider": "huggingface",
-      "source": "nvidia/Qwen3.6-35B-A3B-NVFP4",
-      "revision": "491c2f1ea524c639598bf8fa787a93fed5a6fbce",
-      "local_dir": "nvidia/qwen3.6-35b-a3b-nvfp4",
+      "id": "qwen3.6-35b-a3b-gguf-q4_k_m",
+      "provider": "modelscope",
+      "source": "ggml-org/Qwen3.6-35B-A3B-GGUF",
+      "revision": "37b9ed4ed8b3942a5ac69bffb490a5d25acdad4e",
+      "local_dir": "qwen/qwen3.6-35b-a3b-gguf",
       "license": "Apache-2.0",
       "required": true,
       "allow_incomplete": false,
-      "notes": "Primary multimodal planner. NVIDIA ModelOpt NVFP4 checkpoint served by the pinned native aarch64 CUDA vLLM runtime using NVIDIA's DGX Spark settings; no container runtime is used.",
+      "notes": "Primary multimodal planner. Q4_K_M GGUF plus BF16 vision projection served by pinned CUDA llama.cpp on DGX Spark; no Docker, Ollama, or remote inference API is used.",
       "files": [
         {
-          "path": "chat_template.jinja",
-          "size": 7764,
-          "sha256": "e84f32a23fdda27689f868aa4a1a5621f41133e51a48d7f3efcbea2839574259",
+          "path": "Qwen3.6-35B-A3B-Q4_K_M.gguf",
+          "size": 20419565568,
+          "sha256": "671e47e0ec53c665d048b98c3ecbfd5236b5ca9c3e02ed19fc8f81f7b85140c7",
           "required": true
         },
         {
-          "path": "config.json",
-          "size": 58110,
-          "sha256": "58aefa1c9eff7989f431d748f2ddec39446cb1fd2a69acc46e285c6a37b0cecc",
-          "required": true
-        },
-        {
-          "path": "configuration.json",
-          "size": 58,
-          "sha256": "c1b09db419119513247e9b8b912c4b9897106c9b20c6cada7e107d993c5435eb",
-          "required": true
-        },
-        {
-          "path": "generation_config.json",
-          "size": 202,
-          "sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e",
-          "required": true
-        },
-        {
-          "path": "hf_quant_config.json",
-          "size": 35085,
-          "sha256": "75fe7cc8d5836b58734e05ee67423a4ce91d602aaad45c8173a1b7597cd57663",
-          "required": true
-        },
-        {
-          "path": "model-00001-of-00003.safetensors",
-          "size": 10006877608,
-          "sha256": "07141c2db92e47bc08777132cd1a0323faf300eab3a7d7c111bc2bf075fda050",
-          "required": true
-        },
-        {
-          "path": "model-00002-of-00003.safetensors",
-          "size": 10003595752,
-          "sha256": "6dea9c759a0f941cf9e1cc1501216b0e107966a66c90425050e212efbd053f02",
-          "required": true
-        },
-        {
-          "path": "model-00003-of-00003.safetensors",
-          "size": 3413864960,
-          "sha256": "9758875fc55e49561165f4a44342b654c123c3e25c6811b34abb83553fb1a164",
-          "required": true
-        },
-        {
-          "path": "model.safetensors.index.json",
-          "size": 13726227,
-          "sha256": "d67403a4e9793c0ba8a136baf14b3b76ec7b32c822267978084895e07ebd8a3e",
-          "required": true
-        },
-        {
-          "path": "preprocessor_config.json",
-          "size": 390,
-          "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516",
-          "required": true
-        },
-        {
-          "path": "tokenizer.json",
-          "size": 12807982,
-          "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
-          "required": true
-        },
-        {
-          "path": "tokenizer_config.json",
-          "size": 16718,
-          "sha256": "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b",
-          "required": true
-        },
-        {
-          "path": "video_preprocessor_config.json",
-          "size": 385,
-          "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13",
-          "required": true
-        },
-        {
-          "path": "vocab.json",
-          "size": 6722759,
-          "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "stepfun-step-3.7-flash-gguf-q3_k_m",
-      "provider": "huggingface",
-      "source": "stepfun-ai/Step-3.7-Flash-GGUF",
-      "revision": "0b69336d2fd2adfdef9c66e425f7778196c31482",
-      "local_dir": "stepfun/step-3.7-flash",
-      "license": "Apache-2.0",
-      "adopt_from": "/root/models/step-3.7-flash",
-      "required": false,
-      "allow_incomplete": false,
-      "notes": "Q3_K_M shard 2 must be complete; historical incomplete shard size must not pass verification.",
-      "files": [
-        {
-          "path": "Q3_K_M/Step-3.7-flash-Q3_K_M-00001-of-00003.gguf",
-          "size": 46768409504,
-          "sha256": "1f79f2c30fbbc10cd180589288e0a047b72fc56a27fd7d85444f70351bd9521d",
-          "x_linked_etag": "1f79f2c30fbbc10cd180589288e0a047b72fc56a27fd7d85444f70351bd9521d",
-          "required": true
-        },
-        {
-          "path": "Q3_K_M/Step-3.7-flash-Q3_K_M-00002-of-00003.gguf",
-          "size": 46381975392,
-          "sha256": "c0bd348948b5c15316a54c6880d5868e5643066c930bc91045a309e9dd359618",
-          "x_linked_etag": "c0bd348948b5c15316a54c6880d5868e5643066c930bc91045a309e9dd359618",
-          "required": true,
-          "known_incomplete_guard": "reject any local shard 2 whose size is not exactly 46381975392 bytes"
-        },
-        {
-          "path": "Q3_K_M/Step-3.7-flash-Q3_K_M-00003-of-00003.gguf",
-          "size": 651059456,
-          "sha256": "65ab284b7c0cf8a6ba45dd0b0d0b354625f2a58a487c0210fc14e4002d87f833",
-          "x_linked_etag": "65ab284b7c0cf8a6ba45dd0b0d0b354625f2a58a487c0210fc14e4002d87f833",
-          "required": true
-        },
-        {
-          "path": "mmproj-step3.7-flash-f16.gguf",
-          "size": 3972828768,
-          "sha256": "5f25d11f92235c69682ca820af5f4cb125ae1142c8c33c018d0b3c9000a2ec1c",
-          "x_linked_etag": "5f25d11f92235c69682ca820af5f4cb125ae1142c8c33c018d0b3c9000a2ec1c",
+          "path": "mmproj-Qwen3.6-35B-A3B-BF16.gguf",
+          "size": 902822144,
+          "sha256": "360c746ddf38fb67c06f83a0a88742492aa231e59e335cd980e6302f59ea6089",
           "required": true
         }
       ]

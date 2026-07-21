@@ -51,9 +51,14 @@ env_python() {
 
 sync_modelscope() {
   local source="$1" revision="$2" dest="$3" includes="${4:-}"
-  local py
+  local files=() py
+  if [[ -n "$includes" ]]; then
+    IFS=',' read -r -a files <<< "$includes"
+  fi
   py="$(env_python modelscope modelscope)"
-  "${py%/python}/modelscope" download --model "$source" --revision "$revision" --local_dir "$dest"
+  MODELSCOPE_ENDPOINT="${MODELSCOPE_ENDPOINT:-https://modelscope.cn}" \
+    "${py%/python}/modelscope" download "$source" "${files[@]}" \
+      --revision "$revision" --local-dir "$dest"
 }
 
 sync_huggingface() {
@@ -61,31 +66,6 @@ sync_huggingface() {
   local files=()
   if [[ -n "$includes" ]]; then
     IFS=',' read -r -a files <<< "$includes"
-  fi
-
-  # The Step GGUF shard is large enough that an expiring Xet URL can fail near
-  # completion. Keep a normal file beside the destination so curl can resume it
-  # across fresh signed redirects instead of losing an opaque client cache.
-  if [[ "$source" == "stepfun-ai/Step-3.7-Flash-GGUF" ]]; then
-    local endpoint="${HF_ENDPOINT:-https://hf-mirror.com}"
-    local file target partial url
-    for file in "${files[@]}"; do
-      target="$dest/$file"
-      partial="${target}.overseaark-download"
-      if [[ -f "$target" ]]; then
-        log "using existing Hugging Face file $target"
-        continue
-      fi
-      mkdir -p "$(dirname "$target")"
-      url="${endpoint%/}/${source}/resolve/${revision}/${file}?download=true"
-      log "downloading resumable Hugging Face file $file"
-      curl --fail --location --continue-at - \
-        --retry 100 --retry-all-errors --retry-delay 5 \
-        --connect-timeout 20 --speed-time 120 --speed-limit 1024 \
-        --output "$partial" "$url"
-      mv "$partial" "$target"
-    done
-    return 0
   fi
 
   # Step1X needs its scheduler, tokenizer, and pipeline configuration in
@@ -308,8 +288,6 @@ for model in data["models"]:
         matches = glob.glob(pattern)
         if not matches:
             msg = f"{model['id']}: missing required file pattern {item['path']}"
-            if item.get("known_incomplete"):
-                msg += " (known incomplete Step-3.7 Q3_K_M shard 2)"
             if item.get("required", True):
                 errors.append(msg)
             else:
