@@ -144,6 +144,8 @@ def main() -> None:
         "on",
         "--json-schema",
         json.dumps(schema),
+        "--single-turn",
+        "--simple-io",
         "--temp",
         "0.2",
         "--no-display-prompt",
