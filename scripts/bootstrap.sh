@@ -18,11 +18,11 @@ if [[ "${OVERSEAARK_OPERATION_LOCK_HELD:-0}" != "1" ]]; then
 fi
 
 install_system_packages() {
-  if have ffmpeg && node22_available && have git && have cmake && have c++; then
+  if have ffmpeg && node22_available && have git && have cmake && have c++ && python_dev_headers_available; then
     return 0
   fi
   if [[ "$(uname -s)" != "Linux" ]] || ! have apt-get; then
-    warn "ffmpeg/Node 22/npm missing and apt-get unavailable; install them manually on this host"
+    warn "ffmpeg/Node 22/npm/Python development headers missing and apt-get unavailable; install them manually on this host"
     return 0
   fi
 
@@ -33,8 +33,20 @@ install_system_packages() {
   fi
   "${sudo_cmd[@]}" apt-get update
   "${sudo_cmd[@]}" apt-get install -y \
-    build-essential ca-certificates cmake curl ffmpeg git git-lfs pkg-config xz-utils
+    build-essential ca-certificates cmake curl ffmpeg git git-lfs pkg-config \
+    python3-dev python3-venv xz-utils
   install_node22 "${sudo_cmd[@]}"
+}
+
+python_dev_headers_available() {
+  have python3 || return 1
+  python3 - <<'PY' >/dev/null 2>&1
+import pathlib
+import sysconfig
+
+include_dir = pathlib.Path(sysconfig.get_path("include"))
+raise SystemExit(0 if (include_dir / "Python.h").is_file() else 1)
+PY
 }
 
 install_llama_cpp() {
