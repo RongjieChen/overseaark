@@ -99,6 +99,28 @@ TASK_SCHEMAS = {
 }
 
 
+def _extract_task_result(text: str, task: str) -> dict[str, object]:
+    required = set(TASK_SCHEMAS.get(task, {"required": ["text"]})["required"])
+    decoder = json.JSONDecoder()
+    candidates: list[dict[str, object]] = []
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            candidates.append(value)
+    for candidate in reversed(candidates):
+        if required <= candidate.keys():
+            return candidate
+    raise SystemExit(
+        f"llama-cli returned no JSON object matching {task!r} required keys: "
+        f"{', '.join(sorted(required))}"
+    )
+
+
 def main() -> None:
     payload = read_payload()
     model_dir = models_root() / "stepfun/step-3.7-flash"
@@ -144,7 +166,7 @@ def main() -> None:
         "on",
         "--json-schema",
         json.dumps(schema),
-        "--single-turn",
+        "--no-conversation",
         "--simple-io",
         "--temp",
         "0.2",
@@ -160,12 +182,7 @@ def main() -> None:
     )
     if proc.returncode != 0:
         raise SystemExit(proc.stderr.strip() or "llama-cli failed")
-    text = proc.stdout.strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise SystemExit("llama-cli did not return a JSON object")
-    result = json.loads(text[start : end + 1])
+    result = _extract_task_result(proc.stdout, task)
     result.setdefault("model", "stepfun-ai/Step-3.7-Flash-GGUF")
     write_result(result)
 

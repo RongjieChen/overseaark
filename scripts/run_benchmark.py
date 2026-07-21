@@ -200,6 +200,15 @@ def main() -> int:
             },
             extra_env=llm_env,
         )
+        missing = {
+            "positioning",
+            "differentiators",
+            "market_hypotheses",
+        } - result.keys()
+        if missing:
+            raise RuntimeError(
+                f"LLM benchmark result missing required keys: {', '.join(sorted(missing))}"
+            )
     elif args.modality == "image":
         result = image_benchmark(workdir)
     elif args.modality == "video":
