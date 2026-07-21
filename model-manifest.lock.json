@@ -196,6 +196,26 @@
       ]
     },
     {
+      "id": "wan2.2-vae-cosmos3",
+      "provider": "modelscope",
+      "source": "Wan-AI/Wan2.2-TI2V-5B",
+      "revision": "master",
+      "upstream_revision": "921dbaf3f1674a56f47e83fb80a34bac8a8f203e",
+      "local_dir": "wan/wan2.2-vae",
+      "license": "Apache-2.0",
+      "required": true,
+      "allow_incomplete": false,
+      "notes": "Cosmos3 Framework vision tokenizer dependency. Only the pinned VAE file is downloaded; the rest of the 5B repository is excluded.",
+      "files": [
+        {
+          "path": "Wan2.2_VAE.pth",
+          "size": 2818839170,
+          "sha256": "20eb789667fa5e60e7516bf509512f6cb61f01b0aa0695eadaea930c13892b36",
+          "required": true
+        }
+      ]
+    },
+    {
       "id": "nemo-nano-codec-22khz-1.89kbps-21.5fps",
       "provider": "huggingface",
       "source": "nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps",

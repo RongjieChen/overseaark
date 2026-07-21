@@ -15,6 +15,9 @@ from adapter_common import cuda_cleanup, models_root, read_payload, require_path
 def main() -> None:
     payload = read_payload()
     checkpoint = require_path(models_root() / "nvidia/cosmos3-edge", "Cosmos3-Edge checkpoint")
+    vae_checkpoint = require_path(
+        models_root() / "wan/wan2.2-vae/Wan2.2_VAE.pth", "Wan2.2 VAE checkpoint"
+    )
     output_path = Path(payload["output_path"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="overseaark-cosmos3-") as tmp:
@@ -58,6 +61,7 @@ def main() -> None:
                 "HF_HUB_OFFLINE": "1",
                 "TRANSFORMERS_OFFLINE": "1",
                 "OVERSEAARK_COSMOS_LOCAL_CHECKPOINT": str(checkpoint),
+                "OVERSEAARK_COSMOS_VAE_CHECKPOINT": str(vae_checkpoint),
             }
         )
         subprocess.run(cmd, check=True, env=env)

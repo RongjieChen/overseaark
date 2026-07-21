@@ -41,6 +41,9 @@ def test_cosmos_adapter_uses_offline_inference_mode_and_json_sample_overrides(
     adapter = load_adapter()
     checkpoint = tmp_path / "models" / "nvidia" / "cosmos3-edge"
     checkpoint.mkdir(parents=True)
+    vae_checkpoint = tmp_path / "models" / "wan" / "wan2.2-vae" / "Wan2.2_VAE.pth"
+    vae_checkpoint.parent.mkdir(parents=True)
+    vae_checkpoint.write_bytes(b"vae")
     source_image = tmp_path / "source.png"
     source_image.write_bytes(b"png")
     target_video = tmp_path / "campaign.mp4"
@@ -76,6 +79,7 @@ def test_cosmos_adapter_uses_offline_inference_mode_and_json_sample_overrides(
     assert captured["env"]["HF_HUB_OFFLINE"] == "1"
     assert captured["env"]["TRANSFORMERS_OFFLINE"] == "1"
     assert captured["env"]["OVERSEAARK_COSMOS_LOCAL_CHECKPOINT"] == str(checkpoint)
+    assert captured["env"]["OVERSEAARK_COSMOS_VAE_CHECKPOINT"] == str(vae_checkpoint)
     assert Path(captured["cmd"][1]).name == "cosmos_local_inference.py"
     assert captured["cmd"][captured["cmd"].index("--checkpoint-path") + 1] == "Cosmos3-Edge"
     assert "--no-guardrails" in captured["cmd"]
@@ -99,19 +103,36 @@ def test_cosmos_local_wrapper_fails_closed_for_other_repositories(monkeypatch, t
     wrapper = load_local_wrapper()
     checkpoint = tmp_path / "cosmos3-edge"
     checkpoint.mkdir()
+    vae_checkpoint = tmp_path / "Wan2.2_VAE.pth"
+    vae_checkpoint.write_bytes(b"vae")
     monkeypatch.setenv("OVERSEAARK_COSMOS_LOCAL_CHECKPOINT", str(checkpoint))
+    monkeypatch.setenv("OVERSEAARK_COSMOS_VAE_CHECKPOINT", str(vae_checkpoint))
 
     class FakeCheckpointDirHf:
         def __init__(self, repository: str):
             self.repository = repository
 
+    class FakeCheckpointFileHf:
+        def __init__(self, repository: str, revision: str, filename: str):
+            self.repository = repository
+            self.revision = revision
+            self.filename = filename
+
     checkpoint_module = types.ModuleType("cosmos_framework.utils.checkpoint_db")
     checkpoint_module.CheckpointDirHf = FakeCheckpointDirHf
+    checkpoint_module.CheckpointFileHf = FakeCheckpointFileHf
     inference_module = types.ModuleType("cosmos_framework.scripts.inference")
     calls: list[str] = []
 
     def fake_cosmos_main():
         calls.append(FakeCheckpointDirHf("nvidia/Cosmos3-Edge")._download())
+        calls.append(
+            FakeCheckpointFileHf(
+                "Wan-AI/Wan2.2-TI2V-5B",
+                "921dbaf3f1674a56f47e83fb80a34bac8a8f203e",
+                "Wan2.2_VAE.pth",
+            )._download()
+        )
         try:
             FakeCheckpointDirHf("unapproved/remote-model")._download()
         except RuntimeError as exc:
@@ -130,7 +151,8 @@ def test_cosmos_local_wrapper_fails_closed_for_other_repositories(monkeypatch, t
     wrapper.main()
 
     assert calls[0] == str(checkpoint.resolve())
-    assert calls[1] == (
+    assert calls[1] == str(vae_checkpoint.resolve())
+    assert calls[2] == (
         "offline Cosmos inference rejected an undeclared repository: "
         "unapproved/remote-model"
     )
