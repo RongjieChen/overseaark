@@ -154,6 +154,9 @@ printf 'local-test-key\n' > "$OVERSEAARK_VLLM_API_KEY_FILE"
 native_command="$(vllm_command)"
 [[ "$native_command" == *"127.0.0.1"* ]]
 [[ "$native_command" == *"VLLM_API_KEY=local-test-key"* ]]
+[[ "$native_command" == *"PATH="*"fake-vllm/bin"* ]]
+[[ "$native_command" == *"CUDA_HOME=/usr/local/cuda"* ]]
+[[ "$native_command" == *"TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas"* ]]
 [[ "$native_command" == *"serve"* ]]
 [[ "$native_command" == *"nvidia/qwen3.6-35b-a3b-nvfp4"* ]]
 [[ "$native_command" == *"--served-model-name nvidia/Qwen3.6-35B-A3B-NVFP4"* ]]

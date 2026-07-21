@@ -5,6 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
 vllm_install_ready() {
   [[ -x "$OVERSEAARK_VLLM_BIN" ]] || return 1
+  [[ -x "$OVERSEAARK_VLLM_ENV_DIR/bin/ninja" ]] || return 1
   "$OVERSEAARK_VLLM_ENV_DIR/bin/python" - "$OVERSEAARK_VLLM_VERSION" <<'PY' >/dev/null 2>&1
 import sys
 import torch
@@ -89,10 +90,11 @@ ensure_vllm_api_key() {
 }
 
 vllm_command() {
-  local api_key
+  local api_key runtime_path
   api_key="$(<"$OVERSEAARK_VLLM_API_KEY_FILE")"
-  printf 'exec env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 DO_NOT_TRACK=1 VLLM_NO_USAGE_STATS=1 VLLM_API_KEY=%q %q serve %q' \
-    "$api_key" "$OVERSEAARK_VLLM_BIN" "$OVERSEAARK_VLLM_MODEL_DIR"
+  runtime_path="$OVERSEAARK_VLLM_ENV_DIR/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  printf 'exec env PATH=%q CUDA_HOME=/usr/local/cuda TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 DO_NOT_TRACK=1 VLLM_NO_USAGE_STATS=1 VLLM_API_KEY=%q %q serve %q' \
+    "$runtime_path" "$api_key" "$OVERSEAARK_VLLM_BIN" "$OVERSEAARK_VLLM_MODEL_DIR"
   printf ' --served-model-name %q --host 127.0.0.1 --port %q' \
     "$OVERSEAARK_VLLM_SERVED_MODEL" "$OVERSEAARK_VLLM_PORT"
   printf ' --tensor-parallel-size 1 --trust-remote-code --kv-cache-dtype fp8'
