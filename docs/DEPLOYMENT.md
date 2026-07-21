@@ -220,7 +220,7 @@ OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./o
 
 With command mode and verified models, the same four benchmark commands invoke the real local adapter processes. `benchmark audio` performs three cycles across zh/en/ja, two Magpie voices per language, specified and automatic ASR, and writes its evidence to `OVERSEAARK_DATA_DIR/benchmarks/`.
 
-Current mock validation coverage is 14 backend tests, 7 frontend tests, and 14 E2E mock contract tests. Model quality benchmarks are not included. Do not claim ASR WER, TTS MOS, Step-3.7 quality, image quality, or Cosmos video quality until measured on DGX Spark with command mode.
+Current mock validation coverage is 19 backend tests, 7 frontend tests, and 14 E2E mock contract tests. A DGX command-mode Step-3.7 schema run reached the 900-second safety limit and verified process-group/CUDA cleanup, but did not satisfy the result contract. Do not claim the 10-minute full-flow target, ASR WER, TTS MOS, Step-3.7 quality, image quality, or Cosmos video quality until the corresponding DGX acceptance run passes.
 
 ## Troubleshooting
 

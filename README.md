@@ -5,7 +5,7 @@ OverseaArk is a local-first multimodal campaign workbench for cross-border marke
 Current implementation status is mixed and documented deliberately:
 
 - Implemented: FastAPI campaign API, multipart product-image uploads, SQLite campaign/stage/event storage, six product campaign stages, SSE progress, rerun-from-stage, cancel, zip export, mock model hooks, command model hook boundary, adapter scripts, frontend workbench shell, degraded local frontend fallback, root lifecycle scripts.
-- Implemented as local adapter scripts but not validated end-to-end on DGX here: Step-3.7 LLM through `llama-cli`, Step1X image, Cosmos3 video, Nemotron ASR, and Magpie TTS.
+- Implemented as local adapter scripts. DGX validation has confirmed the complete pinned model manifest, offline llama.cpp process isolation, timeout cleanup, and mock E2E; full schema-valid Step-3.7, Step1X, Cosmos3, Nemotron, and Magpie quality runs remain acceptance work.
 - Not implemented in code: ComfyUI, OpenClaw, or cloud inference APIs.
 - Current production scripts serve the FastAPI API and built frontend from `127.0.0.1:8000` when `runtime/frontend-dist` exists. Do not use a `5173` tunnel for production.
 
@@ -153,7 +153,9 @@ OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark models verify
 OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark test
 ```
 
-Current test coverage in the tree: backend tests pass 14 cases, frontend tests pass 7 cases, and the implemented E2E mock contract passes 14 cases. These tests validate orchestration, cancellation races, adapter schemas, API contracts, frontend normalization/build, and mock-mode packaging; they do not prove DGX end-to-end model inference quality.
+Current test coverage in the tree: backend tests pass 19 cases, frontend tests pass 7 cases, and the implemented E2E mock contract passes 14 cases. These tests validate orchestration, cancellation races, nested process-group cleanup, adapter schemas, API contracts, frontend normalization/build, and mock-mode packaging; they do not prove DGX end-to-end model inference quality.
+
+The latest DGX Step-3.7 schema benchmark reached its 900-second safety limit and was correctly terminated without a residual `llama-cli` process or CUDA allocation. Therefore the PRD's cached full-flow target of 10 minutes is not yet claimed; treat it as an optimization acceptance gate, not a measured result.
 
 In DGX command mode, `./overseaark benchmark llm|image|audio|video` invokes the pinned local adapters directly and writes JSON evidence under `/home/Developer/overseaark-data/benchmarks/`. The audio benchmark runs three cycles, two official Magpie voices per language, and both specified-language and automatic Nemotron transcription checks at the `0.75` similarity threshold.
 
