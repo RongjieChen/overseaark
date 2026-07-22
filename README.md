@@ -13,7 +13,6 @@
 - 已实现：根目录一键生命周期命令、FastAPI API、由 FastAPI 挂载的构建后前端、SQLite Campaign/Event 存储、multipart 上传、六阶段流水线、可恢复 SSE 进度、本地化输出和阶段产物预览、重跑、取消、完整/单语言导出、默认简体中文界面和持久 English 切换、前端 i18n、一键示例输入、mock 模式、command adapter 模式、模型校验/同步、native vLLM LLM 运行时、常驻 ASR/TTS worker，以及超时 adapter 的进程组清理。
 - 已实现 command adapter：Qwen3.6 LLM/VLM 通过 localhost native vLLM 调用，Step1X 生成图片，Cosmos3-Edge 生成视频，Nemotron ASR 做语音识别，Magpie TTS 做语音合成。
 - 已实现安全边界：只监听 localhost，不接受远程模型命令 URL，推理运行时设置 Hugging Face 离线标志，模型调用串行化，采用 safe-warm 策略让 ASR/TTS 保持就绪，并仅在需要时加载更大的视觉运行时。
-- 未实现：Docker、ComfyUI、OpenClaw、Ollama、StepFun 云 API、NVIDIA hosted inference API 或公开服务绑定。
 - DGX E2E 证据：native vLLM Run9 六阶段全部一次成功，用时 `580.147s`（9m40s）。部署 safe-warm 版本后，UQ-14 Campaign `95e8efa8-7dbd-4285-b05a-8db54429d340` 用时 `451.296s`（7m31s），六阶段同样全部一次成功；中/英/日 ASR 相似度为 `0.8333`/`1.0`/`0.88`，完整 ZIP 和三个单语言 ZIP 通过完整性与语言隔离检查。UQ-15 在真实 TTS 执行中取消任务，旧 TTS worker 被终止，随后以新 PID 自动恢复且启动计数递增。Run8 仍作为混合脚本口播缺陷的真实负面证据保留。当前构建下“三轮连续合格运行”的更严格验收标准仍未完成。
 
 ## DGX Spark 快速启动
@@ -408,18 +407,6 @@ OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./o
 | 前端显示 degraded local preview | 浏览器无法访问后端。 | 检查 `./overseaark status` 和 `http://127.0.0.1:8000/api/v1/health`。 |
 | 上传返回 415 | content type 不受支持，或文件字节与声明类型不匹配。 | 商品图使用真实 PNG/JPEG/WebP，音频使用 WAV/MP3/M4A/WebM。 |
 | 导出返回 409 | Campaign 尚未到达 packaging，且没有可用 partial export。 | 等待 Campaign 进入终态，或检查阶段错误。 |
-
-## 重建 PRD Word 文件
-
-PRD 的 Markdown 是内容源，Word 文件由仓库内脚本生成。文档工具使用独立环境，不写入后端运行依赖：
-
-```bash
-python3 -m venv .venv-docs
-.venv-docs/bin/pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r tools/requirements-docs.txt
-.venv-docs/bin/python tools/build_prd_docx.py
-```
-
-生成结果为 `docs/出海方舟OverseaArk-PRD-v2.0.docx`。渲染时应提供 `Arial Unicode MS` 或兼容的中日韩 Unicode 字体，避免办公软件回退为缺字字体。
 
 ## 更多文档
 

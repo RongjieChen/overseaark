@@ -13,7 +13,6 @@ The web workbench includes **Fill demo / 一键填入示例**. It loads a reposi
 - Implemented: root one-command lifecycle, FastAPI API, built frontend mounted by FastAPI, SQLite campaign/event store, multipart uploads, six campaign stages, resumable SSE progress, localized and per-stage artifact previews, rerun, cancel, complete/per-language export, Simplified Chinese default UI with a persistent English switch, frontend i18n, one-click demo input, mock mode, command adapter mode, model verification/sync, native vLLM LLM runtime, resident ASR/TTS workers, and process-group cleanup for timed-out adapters.
 - Implemented command adapters: Qwen3.6 LLM/VLM through localhost native vLLM, Step1X image generation, Cosmos3-Edge video generation, Nemotron ASR, and Magpie TTS.
 - Implemented safety boundary: localhost-only serving, no remote model command URLs, offline Hugging Face runtime flags, serialized inference calls, and a safe-warm model policy that keeps ASR/TTS ready while loading the larger visual runtime only when needed.
-- Not implemented: Docker, ComfyUI, OpenClaw, Ollama, StepFun cloud APIs, NVIDIA hosted inference APIs, or public service binding.
 - DGX E2E evidence: native vLLM Run9 completed all six stages on first attempts in `580.147s` (9m40s). The deployed safe-warm build then completed UQ-14 campaign `95e8efa8-7dbd-4285-b05a-8db54429d340` in `451.296s` (7m31s), again with every stage succeeding on its first attempt. Its zh/en/ja ASR similarities were `0.8333`/`1.0`/`0.88`; the complete ZIP and three scoped ZIPs passed integrity and language-isolation checks. UQ-15 cancelled a real active TTS request, terminated the old TTS worker, and automatically restored it with a new PID and incremented start count. Run8 remains truthful negative evidence for the mixed-script narration defect. The stricter criterion for three consecutive qualifying current-build runs remains open.
 
 ## DGX Spark Quick Start
@@ -408,18 +407,6 @@ Direct adapter benchmarks with verified models:
 | Frontend shows degraded local preview | Backend is unavailable from the browser. | Check `./overseaark status` and `http://127.0.0.1:8000/api/v1/health`. |
 | Upload rejected with 415 | Unsupported content type or image bytes do not match the declared type. | Use real PNG/JPEG/WebP files for products and WAV/MP3/M4A/WebM for audio. |
 | Export returns 409 | Campaign has not reached packaging and no partial export is available. | Wait for a terminal campaign status or inspect stage errors. |
-
-## Rebuild the PRD Word File
-
-The PRD Markdown file is the content source, and the repository script generates the Word artifact. Documentation tooling uses an isolated environment and does not modify backend runtime dependencies:
-
-```bash
-python3 -m venv .venv-docs
-.venv-docs/bin/pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r tools/requirements-docs.txt
-.venv-docs/bin/python tools/build_prd_docx.py
-```
-
-The output is `docs/出海方舟OverseaArk-PRD-v2.0.docx`. Rendering should provide `Arial Unicode MS` or a compatible CJK Unicode font to avoid missing-glyph fallback.
 
 ## More Docs
 
