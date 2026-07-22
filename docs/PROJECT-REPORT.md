@@ -26,13 +26,13 @@
 
 ## 前后端与可恢复状态
 
-后端采用 FastAPI、Pydantic、SQLite 和本地文件系统；前端使用 Vite、TypeScript 和 SSE。FastAPI 同时托管 `/api/v1` 与构建后的前端，因此只需要一个 8000 端口。Campaign 和 Stage 使用明确状态枚举，SSE 事件带递增 sequence，客户端可从最后序号继续读取。页面通过 `?campaign=<id>` 深链和本地浏览器状态恢复当前任务；即使后端在生成中被中断，重启时也会从第一个未完成阶段恢复，并记录 `campaign.recovered` 事件。
+后端采用 FastAPI、Pydantic、SQLite 和本地文件系统；前端使用 Vite、TypeScript 和 SSE。界面默认显示简体中文，可一键切换为英文并在浏览器中持久保存选择；切换时同步页面标题、无障碍标签、阶段状态、校验错误和前端进度消息，不改写模型生成的原始内容。FastAPI 同时托管 `/api/v1` 与构建后的前端，因此只需要一个 8000 端口。Campaign 和 Stage 使用明确状态枚举，SSE 事件带递增 sequence，客户端可从最后序号继续读取。页面通过 `?campaign=<id>` 深链和本地浏览器状态恢复当前任务；即使后端在生成中被中断，重启时也会从第一个未完成阶段恢复，并记录 `campaign.recovered` 事件。
 
 ## 实机验证与对抗性审查
 
 项目已在指定 DGX Spark 上完成多次旧运行时与 native vLLM 真实模型全流程。旧运行时第四轮用时 590.003 秒，Run7 冷启动用时 9 分 12 秒，这些只作为历史证据。native vLLM Run8 的 Qwen、Step1X、Magpie 和 Cosmos 都完成了真实推理，但中文口播中的拉丁字母缩写导致回听相似度经重试仍低于 0.75，Campaign 被如实保留为 `partial`。将中文和日文口播改为可直接发音的本地语言后，Run9 六阶段全部一次成功，用时 580.147 秒（约 9 分 40 秒）。中、英、日回听相似度为 0.9375、1.0、0.9189，15 秒 854×480 H.264/AAC 真模型视频与 23 文件 ZIP 通过校验。
 
-除正常测试外，我们按 UltraQA 方式构造了恶意和故障场景：伪造图片与音频、超大上传、Unicode 提示注入、连续取消与重跑、并发 Campaign、SSE 断点续传、ASR 永久低相似度、Cosmos 降级伪装、adapter 超时子进程残留、成功样式输出配合非零退出，以及恶意 adapter 用符号链接读取 Campaign 目录外文件。审查修复了中断任务恢复、旧 LLM 守护进程管道、FlashInfer 首启并行编译 OOM、adapter 产物路径越界导出和音频 MIME 伪造五类真实问题。完整本地套件现包括 54 个后端测试、8 个前端测试和 14 个 HTTP Mock E2E；DGX 上额外 23 个安全/运行时聚焦测试通过。
+除正常测试外，我们按 UltraQA 方式构造了恶意和故障场景：伪造图片与音频、超大上传、Unicode 提示注入、连续取消与重跑、并发 Campaign、SSE 断点续传、ASR 永久低相似度、Cosmos 降级伪装、adapter 超时子进程残留、成功样式输出配合非零退出，以及恶意 adapter 用符号链接读取 Campaign 目录外文件。审查修复了中断任务恢复、旧 LLM 守护进程管道、FlashInfer 首启并行编译 OOM、adapter 产物路径越界导出和音频 MIME 伪造五类真实问题。完整本地套件现包括 54 个后端测试、15 个前端测试和 14 个 HTTP Mock E2E；DGX 上额外 23 个安全/运行时聚焦测试通过。
 
 ## 结果与仍需改进的地方
 

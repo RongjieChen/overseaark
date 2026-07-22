@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeCampaignDetail, normalizeCreateResponse } from "../src/api.js";
+import { normalizeCampaignDetail, normalizeCreateResponse, splitMarkets } from "../src/api.js";
 
 test("normalizes snake_case create response", () => {
   const response = normalizeCreateResponse({
@@ -58,4 +58,12 @@ test("normalizes stage name records and object-keyed artifacts", () => {
   assert.equal(detail.artifacts.some((artifact) => artifact.kind === "audio" && artifact.content === "en.wav"), true);
   assert.equal(detail.artifacts.some((artifact) => artifact.kind === "export" && artifact.content === "demo.mp4"), true);
   assert.equal(detail.artifacts.some((artifact) => artifact.kind === "diagnostic" && artifact.content === "ok"), true);
+  assert.deepEqual(
+    detail.artifacts.find((artifact) => artifact.content === "中文文案")?.titleContext,
+    { stage: "multilingual_copy", key: "copy", language: "zh" },
+  );
+});
+
+test("splits target markets written with English or Chinese punctuation", () => {
+  assert.deepEqual(splitMarkets("美国，日本、德国, France"), ["美国", "日本", "德国", "France"]);
 });

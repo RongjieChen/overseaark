@@ -63,6 +63,35 @@ button:disabled {
   margin-bottom: 22px;
 }
 
+.topbar-tools {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.locale-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #d4dde8;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+
+.locale-switch button {
+  min-height: 32px;
+  border: 0;
+  padding: 0 10px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.locale-switch button.active {
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgb(38 52 72 / 12%);
+}
+
 h1,
 h2,
 p {
@@ -534,6 +563,18 @@ button:focus-visible {
 
   .health {
     width: 100%;
+  }
+
+  .topbar-tools {
+    justify-items: stretch;
+  }
+
+  .locale-switch {
+    width: 100%;
+  }
+
+  .locale-switch button {
+    flex: 1;
   }
 }
 

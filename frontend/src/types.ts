@@ -44,6 +44,11 @@ export interface Artifact {
   kind: "copy" | "brief" | "image_prompt" | "audio" | "export" | "diagnostic";
   content: string;
   quality?: "final" | "partial" | "degraded";
+  titleContext?: {
+    stage: CampaignStageKey;
+    key: string;
+    language?: LanguageCode;
+  };
 }
 
 export interface CampaignDetail {

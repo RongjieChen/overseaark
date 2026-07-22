@@ -8,6 +8,7 @@ import {
   offlineHealth,
 } from "./campaign.js";
 import type {
+  Artifact,
   CampaignCreateResponse,
   CampaignDetail,
   CampaignEvent,
@@ -165,8 +166,8 @@ export class ApiClient {
     return source;
   }
 
-  createConnectionFailure(reason: string): CampaignDetail {
-    return createConnectionFailureCampaign(reason);
+  createConnectionFailure(reason: string, summary?: string): CampaignDetail {
+    return createConnectionFailureCampaign(reason, summary);
   }
 
   private async postAction(id: string, action: "rerun" | "cancel"): Promise<CampaignCreateResponse> {
@@ -269,6 +270,7 @@ export function normalizeCampaignDetail(payload: unknown): CampaignDetail {
         kind: normalizeArtifactKind(raw.kind ?? raw.type),
         content: String(raw.content ?? raw.text ?? ""),
         quality: normalizeArtifactQuality(raw.quality ?? raw.status),
+        titleContext: normalizeArtifactTitleContext(raw.title_context),
       };
     }),
     warnings: rawWarnings.map(String),
@@ -311,6 +313,7 @@ function expandStageArtifact(stage: string, raw: Record<string, unknown>): unkno
         language: nestedKey,
         kind: artifactKindFromKey(key),
         content: stringifyArtifactContent(nestedValue),
+        title_context: { stage, key, language: nestedKey },
       }));
     }
 
@@ -321,6 +324,7 @@ function expandStageArtifact(stage: string, raw: Record<string, unknown>): unkno
         language: inferLanguage(raw.language),
         kind: artifactKindFromKey(key),
         content: stringifyArtifactContent(value),
+        title_context: { stage, key, language: "" },
       },
     ];
   });
@@ -367,9 +371,9 @@ function stringifyArtifactContent(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function splitMarkets(value: string): string[] {
+export function splitMarkets(value: string): string[] {
   return value
-    .split(",")
+    .split(/[,，、]/u)
     .map((market) => market.trim())
     .filter(Boolean);
 }
@@ -404,6 +408,20 @@ function normalizeArtifactQuality(value: unknown): "final" | "partial" | "degrad
   }
 
   return "final";
+}
+
+function normalizeArtifactTitleContext(value: unknown): Artifact["titleContext"] {
+  const record = asRecord(value);
+  const stage = normalizeStageKey(record.stage);
+  const key = typeof record.key === "string" ? record.key : "";
+  if (!stage || !key) {
+    return undefined;
+  }
+
+  const language = record.language === "zh" || record.language === "en" || record.language === "ja"
+    ? record.language
+    : undefined;
+  return { stage, key, language };
 }
 
 function parseSseChunk(chunk: string, onEvent: (event: CampaignEvent) => void): void {

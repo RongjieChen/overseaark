@@ -8,6 +8,15 @@ import type {
   LanguageCode,
   StageState,
 } from "./types.js";
+import type { ValidationMessages } from "./i18n.js";
+
+const defaultValidationMessages: ValidationMessages = {
+  descriptionTooShort: "Description must contain at least 5 characters.",
+  descriptionTooLong: "Description must be 2000 characters or fewer.",
+  imageRequired: "Product image is required.",
+  imageType: "Product image must be JPG, PNG, or WebP.",
+  imageTooLarge: "Product image must be 20MB or smaller.",
+};
 
 export const STAGES: readonly Omit<CampaignStage, "state" | "detail">[] = [
   {
@@ -59,32 +68,32 @@ export function createEmptyCampaign(): CampaignDetail {
   };
 }
 
-export function validateDescription(value: string): string | null {
+export function validateDescription(value: string, messages = defaultValidationMessages): string | null {
   const length = value.trim().length;
 
   if (length < 5) {
-    return "Description must contain at least 5 characters.";
+    return messages.descriptionTooShort;
   }
 
   if (length > 2000) {
-    return "Description must be 2000 characters or fewer.";
+    return messages.descriptionTooLong;
   }
 
   return null;
 }
 
-export function validateProductImage(file: File | null): string | null {
+export function validateProductImage(file: File | null, messages = defaultValidationMessages): string | null {
   if (!file) {
-    return "Product image is required.";
+    return messages.imageRequired;
   }
 
   const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
   if (!allowedTypes.has(file.type)) {
-    return "Product image must be JPG, PNG, or WebP.";
+    return messages.imageType;
   }
 
   if (file.size > 20 * 1024 * 1024) {
-    return "Product image must be 20MB or smaller.";
+    return messages.imageTooLarge;
   }
 
   return null;
@@ -181,12 +190,15 @@ function fallbackStage(key: CampaignStageKey): CampaignStage {
   };
 }
 
-export function createConnectionFailureCampaign(reason: string): CampaignDetail {
+export function createConnectionFailureCampaign(
+  reason: string,
+  summary = "Campaign creation did not reach the backend.",
+): CampaignDetail {
   return {
     ...createEmptyCampaign(),
     status: "failed",
     sequence: 0,
-    summary: "Campaign creation did not reach the backend.",
+    summary,
     stages: STAGES.map((stage, index) => ({
       ...stage,
       state: index === 0 ? "failed" : "pending",
@@ -264,9 +276,9 @@ function normalizeEventStage(
   };
 }
 
-export function formatDateTime(value?: string): string {
+export function formatDateTime(value?: string, locale?: string, fallback = "Not available"): string {
   if (!value) {
-    return "Not available";
+    return fallback;
   }
 
   const date = new Date(value);
@@ -274,7 +286,7 @@ export function formatDateTime(value?: string): string {
     return value;
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);

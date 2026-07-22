@@ -125,7 +125,7 @@ The final export manifest records:
 
 ## Frontend
 
-Frontend source lives in `frontend/src`. The production build is copied to `runtime/frontend-dist` and mounted by FastAPI. The UI covers product input, optional transcription, health status, six-stage progress, SSE updates, rerun, cancel, export, and a local degraded preview when the backend is unavailable.
+Frontend source lives in `frontend/src`. The production build is copied to `runtime/frontend-dist` and mounted by FastAPI. The UI defaults to Simplified Chinese and can switch to persistent English without changing backend or model-generated payloads. It covers product input, optional transcription, health status, six-stage progress, SSE updates, rerun, cancel, export, and a local degraded preview when the backend is unavailable.
 
 ## Offline Boundary
 

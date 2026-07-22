@@ -6,7 +6,7 @@ The implemented demo flow accepts one product image and product description, run
 
 ## Current Status
 
-- Implemented: root one-command lifecycle, FastAPI API, built frontend mounted by FastAPI, SQLite campaign/event store, multipart uploads, six campaign stages, SSE progress, rerun, cancel, export, mock mode, command adapter mode, model verification/sync, native vLLM LLM runtime, and process-group cleanup for timed-out adapters.
+- Implemented: root one-command lifecycle, FastAPI API, built frontend mounted by FastAPI, SQLite campaign/event store, multipart uploads, six campaign stages, SSE progress, rerun, cancel, export, a Simplified Chinese default UI with a persistent English switch, mock mode, command adapter mode, model verification/sync, native vLLM LLM runtime, and process-group cleanup for timed-out adapters.
 - Implemented command adapters: Qwen3.6 LLM/VLM through localhost native vLLM, Step1X image generation, Cosmos3-Edge video generation, Nemotron ASR, and Magpie TTS.
 - Implemented safety boundary: localhost-only serving, no remote model command URLs, offline Hugging Face runtime flags, ModelManager serialization, and one heavy GPU adapter active at a time.
 - Not implemented: Docker, ComfyUI, OpenClaw, Ollama, StepFun cloud APIs, NVIDIA hosted inference APIs, or public service binding.
@@ -20,7 +20,7 @@ The implemented demo flow accepts one product image and product description, run
 
 ### 作品介绍与核心亮点
 
-产品把交付流程固定为市场定位、买家画像、多语文案、视觉设计、音视频制作、质量与打包六个阶段。前端通过 SSE 显示递增事件序号，刷新页面后可以恢复；后端把 Campaign、Stage、重试和产物记录在 SQLite 与本地目录中。单阶段失败会自动重试一次，第二次仍失败则如实标记为 `partial`，同时保留此前成功产物。Cosmos 失败时可以生成明确标记的降级视频，但不会冒充真模型结果。最终 ZIP 还包含模型 ID、revision、许可证、阶段尝试次数和调用记录，使评审能够确认每项素材由哪个本地模型生成。
+产品把交付流程固定为市场定位、买家画像、多语文案、视觉设计、音视频制作、质量与打包六个阶段。前端默认显示简体中文，可一键切换为 English，并把界面语言保存在浏览器中；同时通过 SSE 显示递增事件序号，刷新页面后可以恢复。后端把 Campaign、Stage、重试和产物记录在 SQLite 与本地目录中。单阶段失败会自动重试一次，第二次仍失败则如实标记为 `partial`，同时保留此前成功产物。Cosmos 失败时可以生成明确标记的降级视频，但不会冒充真模型结果。最终 ZIP 还包含模型 ID、revision、许可证、阶段尝试次数和调用记录，使评审能够确认每项素材由哪个本地模型生成。
 
 核心体验是一键脚本。`./overseaark start` 会自动检查系统、补齐 Python/Node 依赖、构建前端、安装隔离的 native vLLM 环境、校验模型清单、删除损坏分片、断点下载缺失文件、启动本地服务并等待健康检查。它不依赖 Docker、ComfyUI 或云端推理控制台；运维、日志、模型同步、诊断、测试和 benchmark 都由同一个根命令管理。模型和用户数据分别保存在仓库外的 `/home/Developer/overseaark-models` 与 `/home/Developer/overseaark-data`，代码仓库不会混入权重、数据库、凭据或生成素材。
 
@@ -36,7 +36,7 @@ The implemented demo flow accepts one product image and product description, run
 
 ### 实机结果与优化过程
 
-native vLLM Run9 六阶段全部一次成功，端到端用时 `580.147s`。该轮输出 15 秒、854×480、H.264/AAC 的真实 Cosmos 视频和 23 文件 ZIP；中、英、日 TTS 回听相似度分别为 `0.9375`、`1.0`、`0.9189`。优化过程包括把 Step1X 演示默认值从 8 步调整到经独立基准验证的 6 步、将 FlashInfer 首次 JIT 编译并行度限制为 1 以避免统一内存 OOM、让中文和日文视频脚本避免不可直接发音的拉丁缩写，以及在重型阶段前卸载 vLLM。完整本地回归包括 54 个后端测试、8 个前端测试和 14 个 HTTP Mock E2E；DGX 上另有 23 个安全与运行时聚焦测试。
+native vLLM Run9 六阶段全部一次成功，端到端用时 `580.147s`。该轮输出 15 秒、854×480、H.264/AAC 的真实 Cosmos 视频和 23 文件 ZIP；中、英、日 TTS 回听相似度分别为 `0.9375`、`1.0`、`0.9189`。优化过程包括把 Step1X 演示默认值从 8 步调整到经独立基准验证的 6 步、将 FlashInfer 首次 JIT 编译并行度限制为 1 以避免统一内存 OOM、让中文和日文视频脚本避免不可直接发音的拉丁缩写，以及在重型阶段前卸载 vLLM。完整本地回归包括 54 个后端测试、15 个前端测试和 14 个 HTTP Mock E2E；DGX 上另有 23 个安全与运行时聚焦测试。
 
 ### 团队分工与贡献
 

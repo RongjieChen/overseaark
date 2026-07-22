@@ -50,12 +50,13 @@ test("merges stage, artifact, warning, and sequence updates", () => {
 });
 
 test("creates connection failure campaign without fake artifacts", () => {
-  const campaign = createConnectionFailureCampaign("HTTP 503");
+  const campaign = createConnectionFailureCampaign("HTTP 503", "活动创建请求未到达后端。");
 
   assert.equal(campaign.status, "failed");
   assert.equal(campaign.artifacts.length, 0);
   assert.equal(campaign.stages[0]?.state, "failed");
   assert.equal(campaign.error, "HTTP 503");
+  assert.equal(campaign.summary, "活动创建请求未到达后端。");
 });
 
 test("normalizes backend success and skipped statuses", () => {

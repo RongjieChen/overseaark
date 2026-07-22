@@ -11,7 +11,7 @@
 
 | ID | User/attacker model | Scenario | Command/harness | Expected signal | Actual result | Status | Evidence | Cleanup |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| ADV-E2E-001 | Normal seller | One-command mock startup, six stages, SSE, export, cancel/rerun | `./overseaark test` | All native suites pass | 54 backend, 8 frontend, 14 HTTP E2E; build and lifecycle passed | Pass | Terminal output and CI-equivalent commands below | Backend stopped by lifecycle test |
+| ADV-E2E-001 | Normal seller | One-command mock startup, six stages, SSE, export, cancel/rerun | `./overseaark test` | All native suites pass | 54 backend, 15 frontend, 14 HTTP E2E; build and lifecycle passed | Pass | Terminal output and CI-equivalent commands below | Backend stopped by lifecycle test |
 | ADV-E2E-002 | Malformed client | Wrong JSON encoding, forged image/audio bytes, empty/oversized image, unsupported path-like language | Live localhost harness plus `test_upload_boundaries.py` | 400/413/415/422; no accepted forged file | MIME and container signatures are checked; twelve upload-boundary tests pass | Pass | Dynamic harness JSON and pytest | UUID uploads isolated in temporary data dir |
 | ADV-E2E-003 | Prompt-injection attacker | Chinese/Unicode prompt asks to execute shell, read `/etc/passwd`, skip QC, and claim success | Live localhost campaign plus command-adapter JSON round-trip test | Text remains inert data; no marker created | Campaign completed in mock mode; description preserved; marker absent; command adapter round-tripped exact JSON | Pass | `test_command_payload_treats_prompt_injection_as_inert_json` | Marker confirmed absent |
 | ADV-E2E-004 | Repeated/interrupted user | Double cancel, cancel then rerun, rerun while already running | Live localhost harness, API and adversarial pipeline tests | Idempotent terminal state; fresh rerun completes; concurrent rerun is 409 | Double cancel stayed `cancelled`; rerun completed; active rerun returned 409 | Pass | `test_cancel_during_inflight_stage_remains_cancelled`, `test_rerun_running_campaign_returns_conflict` | No live campaign task or port remains |
@@ -29,7 +29,7 @@
 
 ## Commands run
 
-- `[0] ./overseaark test` — current full baseline: backend 54, frontend 8, TypeScript/Vite build, one-click corrupt/missing-model lifecycle, and HTTP E2E 14 all passed.
+- `[0] ./overseaark test` — current full baseline: backend 54, frontend 15, TypeScript/Vite build, one-click corrupt/missing-model lifecycle, and HTTP E2E 14 all passed.
 - `[0] backend/.venv/bin/python -m compileall -q backend/app backend/tests` — Python static import/compile check; Ruff was not installed and no dependency was added solely for QA.
 - `[0] backend/.venv/bin/python -m pytest ...` repeated three times — 21 targeted adversarial tests passed in all three cycles.
 - `[0] localhost:18080 hostile HTTP harness` — malformed body, forged image, unsupported language, prompt injection, hostile SSE cursor, repeated cancel, and cancel/rerun all produced expected results.
