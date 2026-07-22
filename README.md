@@ -12,6 +12,40 @@ The implemented demo flow accepts one product image and product description, run
 - Not implemented: Docker, ComfyUI, OpenClaw, Ollama, StepFun cloud APIs, NVIDIA hosted inference APIs, or public service binding.
 - DGX E2E evidence: native vLLM run 9 completed all six stages on first attempts in `580.147s` (9m40s). It produced a real 854x480 H.264/AAC Cosmos video, a valid 23-member ZIP, and ASR similarities zh `0.9375`, en `1.0`, ja `0.9189`. Run 8 is retained as truthful negative evidence: its Chinese mixed-script `GaN` narration stayed below `0.75` and the campaign remained `partial`, which led to the speech-native prompt fix used by run 9. This establishes one qualifying native vLLM run; three consecutive qualifying runs are still required by the stricter PRD criterion.
 
+## 项目报告书
+
+### 项目概述、目标与背景
+
+出海方舟 OverseaArk 是面向中小外贸企业、跨境卖家和代运营团队的本地多模态营销工作台。传统外贸素材制作通常分散在市场调研、翻译、海报、配音、视频和质检等多个工具中，产品图、工艺信息与未发布卖点还可能在不同云服务之间流转。项目的目标是在一台 NVIDIA DGX Spark 上把这些步骤收敛成可重复、可恢复、可审计的本地流水线：用户只需提交一张产品图和产品描述，系统便生成中英日文案、产品海报、三语配音、480p 短视频、质量报告和完整 ZIP。服务只监听 localhost，推理阶段关闭 Hugging Face 与 Transformers 在线访问，不把产品资料发送到云端模型。
+
+### 作品介绍与核心亮点
+
+产品把交付流程固定为市场定位、买家画像、多语文案、视觉设计、音视频制作、质量与打包六个阶段。前端通过 SSE 显示递增事件序号，刷新页面后可以恢复；后端把 Campaign、Stage、重试和产物记录在 SQLite 与本地目录中。单阶段失败会自动重试一次，第二次仍失败则如实标记为 `partial`，同时保留此前成功产物。Cosmos 失败时可以生成明确标记的降级视频，但不会冒充真模型结果。最终 ZIP 还包含模型 ID、revision、许可证、阶段尝试次数和调用记录，使评审能够确认每项素材由哪个本地模型生成。
+
+核心体验是一键脚本。`./overseaark start` 会自动检查系统、补齐 Python/Node 依赖、构建前端、安装隔离的 native vLLM 环境、校验模型清单、删除损坏分片、断点下载缺失文件、启动本地服务并等待健康检查。它不依赖 Docker、ComfyUI 或云端推理控制台；运维、日志、模型同步、诊断、测试和 benchmark 都由同一个根命令管理。模型和用户数据分别保存在仓库外的 `/home/Developer/overseaark-models` 与 `/home/Developer/overseaark-data`，代码仓库不会混入权重、数据库、凭据或生成素材。
+
+### 技术方案、架构与创新点
+
+后端采用 FastAPI、Pydantic、SQLite 和本地文件系统，前端采用 Vite、TypeScript 和 SSE。Qwen3.6、Step1X、Cosmos、Magpie 与 Nemotron 都通过显式 adapter 接口接入，`ModelManager` 用单一异步锁串行调度重型任务；阶段切换时停止 vLLM 并释放 DGX Spark 统一内存，避免多个模型同时争抢 GB10 内存。每个命令 adapter 运行在独立进程组中，超时或取消会终止完整进程组，防止残留 CUDA context。上传不仅检查 MIME，还检查图片和音频容器签名；导出前会解析真实路径并拒绝符号链接越界，从而阻止恶意 adapter 把 Campaign 目录外的文件打进 ZIP。
+
+技术创新不只在模型组合，而在“生成—回听—判定—保留证据”的闭环。MagpieTTS 生成中英日音频后，Nemotron ASR 重新转写并计算规范化相似度；低于 `0.75` 时只重做失败语言。Run8 因中文口播中的拉丁缩写而被如实保留为 `partial`，随后生成规则改为使用可直接发音的本地语言，Run9 三种语言均一次通过。这种失败可见、产物可追溯的设计比隐藏错误或静默切换模型更适合真实业务和赛事复现。
+
+### NVIDIA 与 StepFun 技术栈
+
+主模型为 NVIDIA 优化的 `nvidia/Qwen3.6-35B-A3B-NVFP4`，固定 revision 后由 native vLLM 0.25.1 在 `127.0.0.1:8011` 提供 OpenAI-compatible 接口。运行时启用 FP8 KV cache、FlashInfer attention、Marlin MoE、chunked prefill、prefix caching 和 MTP speculative decoding。视觉编辑使用 StepFun `Step1X-Edit-v1p2` FP8 权重；图生视频使用 NVIDIA Cosmos3-Edge 与 Cosmos Framework；语音识别使用 NVIDIA Nemotron 3.5 ASR Streaming 0.6B；语音合成使用 NVIDIA NeMo MagpieTTS Multilingual 357M 和 Nano Codec。所有 CUDA 重任务都在 DGX Spark 本地执行，ffmpeg 只负责字幕、音频和 MP4 封装。
+
+### 实机结果与优化过程
+
+native vLLM Run9 六阶段全部一次成功，端到端用时 `580.147s`。该轮输出 15 秒、854×480、H.264/AAC 的真实 Cosmos 视频和 23 文件 ZIP；中、英、日 TTS 回听相似度分别为 `0.9375`、`1.0`、`0.9189`。优化过程包括把 Step1X 演示默认值从 8 步调整到经独立基准验证的 6 步、将 FlashInfer 首次 JIT 编译并行度限制为 1 以避免统一内存 OOM、让中文和日文视频脚本避免不可直接发音的拉丁缩写，以及在重型阶段前卸载 vLLM。完整本地回归包括 54 个后端测试、8 个前端测试和 14 个 HTTP Mock E2E；DGX 上另有 23 个安全与运行时聚焦测试。
+
+### 团队分工与贡献
+
+公开仓库按职责记录贡献，不在源代码中披露成员住址、照片等个人信息：产品与内容职责负责 PRD、六阶段交付合同和赛事报告；前端职责负责 Campaign 创建、SSE 进度、恢复、重跑和导出体验；后端职责负责 API、状态机、SQLite、ModelManager 与安全边界；模型工程职责负责 vLLM、Step1X、Cosmos、Nemotron、Magpie 的 DGX Spark 适配和模型清单；质量与交付职责负责 UltraQA 对抗场景、实机 E2E、OBS 演示录制、CapCut CLI 剪辑和公开文档。真实团队名称、成员名单和合影仅在赛事提交表中填写，避免把个人资料永久写入公开 Git 历史。
+
+### 未来展望
+
+下一步首先补齐两轮连续的 native vLLM 十分钟内实测，满足 PRD 的三轮严格验收；随后将三语 TTS/ASR 做安全的批量加载以减少重复模型初始化，并增加西班牙语、德语和法语。产品层面会加入可编辑品牌模板、人工审核节点、Campaign 对比和离线素材版本管理；工程层面会继续压缩冷启动、增加模型缓存可视化和内核级离线网络审计。所有扩展仍会坚持 localhost、显式模型版本、失败不伪装和用户数据可完全删除的原则。
+
 ## Repository Layout
 
 ```text
