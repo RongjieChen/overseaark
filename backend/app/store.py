@@ -44,6 +44,7 @@ class Store:
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     description TEXT NOT NULL,
+                    audio_transcription TEXT NOT NULL DEFAULT '',
                     source_market TEXT NOT NULL,
                     target_markets TEXT NOT NULL,
                     languages TEXT NOT NULL,
@@ -85,6 +86,10 @@ class Store:
                 conn.execute(
                     "ALTER TABLE campaigns ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0"
                 )
+            if "audio_transcription" not in columns:
+                conn.execute(
+                    "ALTER TABLE campaigns ADD COLUMN audio_transcription TEXT NOT NULL DEFAULT ''"
+                )
 
     def create_campaign(self, payload: CampaignCreate) -> CampaignDetail:
         campaign_id = str(uuid.uuid4())
@@ -93,14 +98,15 @@ class Store:
             conn.execute(
                 """
                 INSERT INTO campaigns
-                (id, name, description, source_market, target_markets, languages, product_image_path,
+                (id, name, description, audio_transcription, source_market, target_markets, languages, product_image_path,
                  status, cancel_requested, current_stage, error, artifacts, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
                 """,
                 (
                     campaign_id,
                     payload.name,
                     payload.description,
+                    payload.audio_transcription,
                     payload.source_market,
                     json.dumps(payload.target_markets),
                     json.dumps(payload.languages),
@@ -380,6 +386,7 @@ class Store:
         return CampaignDetail(
             **summary.model_dump(),
             description=row["description"],
+            audio_transcription=row["audio_transcription"],
             source_market=row["source_market"],
             target_markets=json.loads(row["target_markets"]),
             languages=json.loads(row["languages"]),

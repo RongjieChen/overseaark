@@ -21,7 +21,7 @@ from mock_overseaark_server import STAGES, MockOverseaArkServer
 TERMINAL_STATUSES = {"completed", "failed", "cancelled", "partial"}
 API_PREFIX = "/api/v1"
 PNG_1X1 = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII="
 )
 
 

@@ -32,6 +32,7 @@ import {
   type StreamMessageKey,
   type StreamMessageState,
 } from "./i18n.js";
+import { DEMO_IMAGE_FILENAME, fetchDemoImage, getDemoCampaignForm } from "./demo.js";
 import type { CampaignDetail, CampaignFormData, CampaignStageKey, HealthStatus, LanguageCode } from "./types.js";
 import "./styles.css";
 
@@ -44,6 +45,7 @@ const state: {
   health: HealthStatus | null;
   imagePreviewUrl: string;
   busy: boolean;
+  demoLoading: boolean;
   stream: ProgressStream | null;
   streamMessage: StreamMessageState;
   selectedLanguage: LanguageCode;
@@ -64,6 +66,7 @@ const state: {
   health: null,
   imagePreviewUrl: "",
   busy: false,
+  demoLoading: false,
   stream: null,
   streamMessage: { kind: "localized", key: "noActiveStream" },
   selectedLanguage: "zh",
@@ -103,6 +106,7 @@ function render(): void {
         <div class="topbar-tools">
           ${renderLocaleSwitcher()}
           ${renderHealth()}
+          ${renderGpuGuide()}
         </div>
       </header>
 
@@ -114,6 +118,17 @@ function render(): void {
               <h2>${copy.productCampaign}</h2>
             </div>
             <button class="icon-button" type="button" id="refresh-health" aria-label="${copy.refreshAria}" title="${copy.refreshTitle}">↻</button>
+          </div>
+
+          <fieldset class="form-fields" aria-busy="${state.demoLoading}" ${state.demoLoading ? "disabled" : ""}>
+          <div class="demo-callout" role="status" aria-live="polite">
+            <div>
+              <strong>${copy.demoTitle}</strong>
+              <span>${copy.demoHint}</span>
+            </div>
+            <button type="button" id="fill-demo" aria-label="${copy.fillDemoAria}" ${state.busy || state.demoLoading ? "disabled" : ""}>
+              ${state.demoLoading ? copy.fillingDemo : copy.fillDemo}
+            </button>
           </div>
 
           <label class="field">
@@ -140,7 +155,7 @@ function render(): void {
 
           <label class="field">
             <span>${copy.audioTranscription} <small>${copy.optional}</small></span>
-            <textarea id="transcription" name="transcription" rows="4" placeholder="${copy.transcriptionPlaceholder}">${escapeHtml(state.form.transcription)}</textarea>
+            <textarea id="transcription" name="transcription" maxlength="4000" rows="4" placeholder="${copy.transcriptionPlaceholder}">${escapeHtml(state.form.transcription)}</textarea>
           </label>
 
           <label class="field">
@@ -159,9 +174,10 @@ function render(): void {
           </fieldset>
 
           <div class="actions">
-            <button class="primary" id="create-campaign" type="submit" ${state.busy ? "disabled" : ""}>${copy.createCampaign}</button>
+            <button class="primary" id="create-campaign" type="submit" ${state.busy || state.demoLoading ? "disabled" : ""}>${copy.createCampaign}</button>
             <button type="button" id="load-detail" ${!state.campaign.id ? "disabled" : ""}>${copy.loadDetail}</button>
           </div>
+          </fieldset>
           <p class="form-error" id="form-error" role="alert"></p>
         </form>
 
@@ -258,7 +274,7 @@ function renderLocaleSwitcher(): string {
   return `
     <div class="locale-switch" role="group" aria-label="${t().languageSwitcherLabel}">
       ${(["zh-CN", "en"] as Locale[]).map((locale) => `
-        <button type="button" class="${state.locale === locale ? "active" : ""}" data-locale="${locale}" aria-pressed="${state.locale === locale}">
+        <button type="button" class="${state.locale === locale ? "active" : ""}" data-locale="${locale}" aria-pressed="${state.locale === locale}" ${state.demoLoading ? "disabled" : ""}>
           ${localeLabel(locale)}
         </button>
       `).join("")}
@@ -278,6 +294,18 @@ function renderHealth(): string {
       <span>${copy.model} ${getModelStatusText(state.locale, state.health.model)}</span>
       <small>${escapeHtml(localizeStableError(state.locale, state.health.detail))}</small>
     </aside>
+  `;
+}
+
+function renderGpuGuide(): string {
+  const copy = t();
+  return `
+    <details class="gpu-guide">
+      <summary>${copy.gpuGuideTitle}</summary>
+      <p>${copy.gpuGuideHint}</p>
+      <div><span>${copy.gpuSnapshotLabel}</span><code>nvidia-smi</code></div>
+      <div><span>${copy.gpuLiveLabel}</span><code>nvidia-smi dmon -s pucvmet</code></div>
+    </details>
   `;
 }
 
@@ -378,6 +406,10 @@ function bindEvents(): void {
     render();
   });
 
+  document.querySelector("#fill-demo")?.addEventListener("click", () => {
+    void fillDemoForm();
+  });
+
   document.querySelectorAll<HTMLInputElement>("input[name='language']").forEach((input) => {
     input.addEventListener("change", () => {
       const values = Array.from(document.querySelectorAll<HTMLInputElement>("input[name='language']:checked")).map(
@@ -418,6 +450,36 @@ function bindEvents(): void {
       render();
     });
   });
+}
+
+async function fillDemoForm(): Promise<void> {
+  if (state.busy || state.demoLoading) {
+    return;
+  }
+
+  state.demoLoading = true;
+  const demoLocale = state.locale;
+  render();
+
+  try {
+    const imageBlob = await fetchDemoImage();
+    const imageFile = new File([imageBlob], DEMO_IMAGE_FILENAME, { type: "image/png" });
+    if (state.imagePreviewUrl) {
+      URL.revokeObjectURL(state.imagePreviewUrl);
+    }
+
+    state.form = {
+      ...getDemoCampaignForm(demoLocale),
+      imageFile,
+    };
+    state.imagePreviewUrl = URL.createObjectURL(imageFile);
+    setStreamMessage("demoFilled");
+  } catch {
+    setStreamMessage("demoFillFailed");
+  } finally {
+    state.demoLoading = false;
+    render();
+  }
 }
 
 async function refreshHealth(): Promise<void> {
@@ -465,6 +527,10 @@ function persistCampaignId(campaignId: string): void {
 }
 
 async function createCampaign(): Promise<void> {
+  if (state.demoLoading) {
+    return;
+  }
+
   const error = validateDescription(state.form.description, validationMessages[state.locale]);
   const imageError = validateProductImage(state.form.imageFile, validationMessages[state.locale]);
   const errorNode = document.querySelector<HTMLParagraphElement>("#form-error");

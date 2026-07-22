@@ -55,6 +55,7 @@ class TranscriptionResponse(BaseModel):
 class CampaignCreate(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str = Field(min_length=5, max_length=2000)
+    audio_transcription: str = Field(default="", max_length=4000)
     source_market: str = "CN"
     target_markets: list[str] = Field(default_factory=lambda: ["US", "JP"])
     languages: list[str] = Field(default_factory=lambda: list(DEFAULT_LANGUAGES))
@@ -82,6 +83,7 @@ class StageRecord(BaseModel):
 
 class CampaignDetail(CampaignSummary):
     description: str
+    audio_transcription: str
     source_market: str
     target_markets: list[str]
     languages: list[str]

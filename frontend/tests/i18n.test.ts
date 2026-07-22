@@ -60,6 +60,10 @@ test("falls back to Chinese when browser storage is unavailable", () => {
 });
 
 test("translates primary stage, status, language, artifact, and validation labels", () => {
+  assert.equal(messages["zh-CN"].appTitle, "DGX Spark：一支不下班的本地多模态外贸营销团队");
+  assert.equal(messages.en.appTitle, "DGX Spark: Your always-on local multimodal export marketing team");
+  assert.equal(messages["zh-CN"].fillDemo, "一键填入示例");
+  assert.equal(messages.en.fillDemo, "Fill demo");
   assert.equal(getStageText("zh-CN", "market_positioning").label, "市场定位");
   assert.equal(getStageText("en", "market_positioning").label, "Market Positioning");
   assert.equal(getStatusText("zh-CN", "running"), "运行中");
@@ -94,6 +98,8 @@ test("localizes stored stream message state after locale changes", () => {
 
   assert.equal(streamMessage("zh-CN", message), "收到进度更新，序列 12。");
   assert.equal(streamMessage("en", message), "Progress update received at sequence 12.");
+  assert.equal(streamMessage("zh-CN", { kind: "localized", key: "demoFilled" }), "演示内容和商品图片已填入，可以直接创建活动。");
+  assert.equal(streamMessage("en", { kind: "localized", key: "demoFilled" }), "Demo content and product image are ready. You can create the campaign now.");
 });
 
 test("translates stable frontend API errors and preserves unknown backend text", () => {

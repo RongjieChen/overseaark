@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import struct
 import uuid
 import zipfile
+import zlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -189,6 +191,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def create_campaign(
         product_image: UploadFile = File(...),
         description: str = Form(..., min_length=5, max_length=2000),
+        audio_transcription: str = Form("", max_length=4000),
         name: str = Form("Untitled campaign", min_length=1, max_length=160),
         source_market: str = Form("CN"),
         target_markets: str = Form("US,JP"),
@@ -204,6 +207,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload = CampaignCreate(
             name=name,
             description=description,
+            audio_transcription=audio_transcription,
             source_market=source_market,
             target_markets=_parse_csv(target_markets),
             languages=_normalize_languages(languages),
@@ -312,31 +316,191 @@ async def _save_upload(
     path = target_dir / f"{uuid.uuid4()}{suffix}"
     size = 0
     head = b""
-    with path.open("wb") as handle:
-        while chunk := await upload.read(1024 * 1024):
-            size += len(chunk)
-            if size > max_bytes:
-                path.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="Upload exceeds 20MB limit")
-            if len(head) < 16:
-                head = (head + chunk)[:16]
-            handle.write(chunk)
-    if size == 0:
-        path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="Upload cannot be empty")
-    if validate_image_magic and not _matches_image_magic(content_type, head):
-        path.unlink(missing_ok=True)
-        raise HTTPException(status_code=415, detail="Upload content does not match image type")
-    if validate_audio_magic and not _matches_audio_magic(content_type, head):
-        path.unlink(missing_ok=True)
-        raise HTTPException(status_code=415, detail="Upload content does not match audio type")
-    return path
+    accepted = False
+    try:
+        with path.open("wb") as handle:
+            while chunk := await upload.read(1024 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise HTTPException(status_code=413, detail="Upload exceeds 20MB limit")
+                if len(head) < 16:
+                    head = (head + chunk)[:16]
+                handle.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="Upload cannot be empty")
+        if validate_image_magic and not _matches_image_magic(content_type, head):
+            raise HTTPException(status_code=415, detail="Upload content does not match image type")
+        if validate_image_magic and content_type == "image/png" and not _is_valid_png(path):
+            raise HTTPException(status_code=415, detail="Upload content does not match image type")
+        if validate_image_magic and not await _media_decodes(path, "v"):
+            raise HTTPException(status_code=415, detail="Upload content does not match image type")
+        if validate_audio_magic and not _matches_audio_magic(content_type, head):
+            raise HTTPException(status_code=415, detail="Upload content does not match audio type")
+        if validate_audio_magic and not await _media_decodes(path, "a"):
+            raise HTTPException(status_code=415, detail="Upload content does not match audio type")
+        accepted = True
+        return path
+    finally:
+        if not accepted:
+            path.unlink(missing_ok=True)
 
 
 def _matches_image_magic(content_type: str, head: bytes) -> bool:
     if content_type == "image/webp":
         return len(head) >= 12 and head.startswith(b"RIFF") and head[8:12] == b"WEBP"
     return any(head.startswith(prefix) for prefix in IMAGE_MAGIC_PREFIXES.get(content_type, ()))
+
+
+def _is_valid_png(path: Path) -> bool:
+    try:
+        data = path.read_bytes()
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return False
+
+        offset = 8
+        seen_ihdr = False
+        seen_idat = False
+        seen_iend = False
+        idat = bytearray()
+        width = 0
+        height = 0
+        bit_depth = 0
+        color_type = 0
+        interlace = 0
+        while offset < len(data):
+            if offset + 12 > len(data):
+                return False
+            length = struct.unpack(">I", data[offset : offset + 4])[0]
+            chunk_type = data[offset + 4 : offset + 8]
+            chunk_end = offset + 12 + length
+            if chunk_end > len(data):
+                return False
+            chunk_data = data[offset + 8 : offset + 8 + length]
+            expected_crc = struct.unpack(">I", data[offset + 8 + length : chunk_end])[0]
+            actual_crc = zlib.crc32(chunk_type + chunk_data) & 0xFFFFFFFF
+            if actual_crc != expected_crc:
+                return False
+
+            if chunk_type == b"IHDR":
+                if seen_ihdr or offset != 8 or length != 13:
+                    return False
+                width, height = struct.unpack(">II", chunk_data[:8])
+                if width < 1 or height < 1 or width > 16_384 or height > 16_384:
+                    return False
+                if width * height > 50_000_000:
+                    return False
+                bit_depth, color_type, compression, filter_method, interlace = chunk_data[8:]
+                valid_depths = {
+                    0: {1, 2, 4, 8, 16},
+                    2: {8, 16},
+                    3: {1, 2, 4, 8},
+                    4: {8, 16},
+                    6: {8, 16},
+                }
+                if bit_depth not in valid_depths.get(color_type, set()):
+                    return False
+                if compression != 0 or filter_method != 0 or interlace not in {0, 1}:
+                    return False
+                seen_ihdr = True
+            elif chunk_type == b"IDAT":
+                if not seen_ihdr or seen_iend:
+                    return False
+                seen_idat = True
+                idat.extend(chunk_data)
+            elif chunk_type == b"IEND":
+                if length != 0 or not seen_idat:
+                    return False
+                seen_iend = True
+                offset = chunk_end
+                break
+            offset = chunk_end
+
+        if not (seen_ihdr and seen_idat and seen_iend) or offset != len(data):
+            return False
+        channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color_type]
+        bits_per_pixel = channels * bit_depth
+        if interlace == 0:
+            passes = [(width, height)]
+        else:
+            adam7 = (
+                (0, 0, 8, 8),
+                (4, 0, 8, 8),
+                (0, 4, 4, 8),
+                (2, 0, 4, 4),
+                (0, 2, 2, 4),
+                (1, 0, 2, 2),
+                (0, 1, 1, 2),
+            )
+            passes = [
+                (
+                    (width - x_start + x_step - 1) // x_step if width > x_start else 0,
+                    (height - y_start + y_step - 1) // y_step if height > y_start else 0,
+                )
+                for x_start, y_start, x_step, y_step in adam7
+            ]
+        expected_size = sum(
+            pass_height * (1 + (pass_width * bits_per_pixel + 7) // 8)
+            for pass_width, pass_height in passes
+            if pass_width and pass_height
+        )
+        decompressor = zlib.decompressobj()
+        compressed = bytes(idat)
+        decompressed_size = 0
+        while compressed:
+            output = decompressor.decompress(compressed, 1024 * 1024)
+            decompressed_size += len(output)
+            if decompressed_size > 256 * 1024 * 1024:
+                return False
+            remaining = decompressor.unconsumed_tail
+            if not output and len(remaining) == len(compressed):
+                return False
+            compressed = remaining
+        return (
+            decompressor.eof
+            and not decompressor.unused_data
+            and decompressed_size == expected_size
+        )
+    except (OSError, struct.error, zlib.error):
+        return False
+
+
+async def _media_decodes(path: Path, stream_type: str) -> bool:
+    command = [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-xerror",
+        "-nostdin",
+        "-threads",
+        "1",
+        "-i",
+        str(path),
+        "-map",
+        f"0:{stream_type}:0",
+    ]
+    if stream_type == "v":
+        command.extend(("-frames:v", "1"))
+    command.extend(("-f", "null", "-"))
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return False
+
+    try:
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+    except TimeoutError:
+        process.kill()
+        await process.communicate()
+        return False
+    except asyncio.CancelledError:
+        process.kill()
+        await process.communicate()
+        raise
+    return process.returncode == 0 and not stderr.strip()
 
 
 def _matches_audio_magic(content_type: str, head: bytes) -> bool:
@@ -398,6 +562,8 @@ def _mount_frontend(app: FastAPI, configured_dist_dir: Path | None = None) -> No
         requested = (dist_dir / full_path).resolve()
         if requested.is_file() and dist_dir.resolve() in requested.parents:
             return FileResponse(requested)
+        if Path(full_path).suffix:
+            raise HTTPException(status_code=404, detail="Frontend asset not found")
         index = dist_dir / "index.html"
         if index.is_file():
             return FileResponse(index)

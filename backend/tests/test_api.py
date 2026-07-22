@@ -25,6 +25,12 @@ from app.models import CampaignCreate, CampaignStatus, StageName, StageStatus
 from app.settings import Settings
 
 
+WAV_ONE_SAMPLE = (
+    b"RIFF&\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00"
+    b"\x00}\x00\x00\x02\x00\x10\x00data\x02\x00\x00\x00\x00\x00"
+)
+
+
 def make_app(tmp_path: Path):
     return create_app(Settings(data_dir=tmp_path, adapter_mode="mock"))
 
@@ -134,7 +140,7 @@ async def test_health_models_and_uploaded_audio_transcription(tmp_path: Path) ->
         models = await client.get("/api/v1/models")
         transcription = await client.post(
             "/api/v1/transcriptions",
-            files={"audio": ("voice.wav", b"RIFF....WAVE", "audio/wav")},
+            files={"audio": ("voice.wav", WAV_ONE_SAMPLE, "audio/wav")},
             data={"language": "ja"},
         )
 
@@ -160,6 +166,14 @@ async def test_health_models_and_uploaded_audio_transcription(tmp_path: Path) ->
 @pytest.mark.asyncio
 async def test_campaign_accepts_image_and_generates_required_artifacts(tmp_path: Path) -> None:
     app = make_app(tmp_path)
+    llm_payloads: list[dict] = []
+
+    class RecordingHooks(MockModelHooks):
+        async def llm(self, task: str, payload: dict) -> dict:
+            llm_payloads.append({"task": task, **payload})
+            return await super().llm(task, payload)
+
+    app.state.runner.model_manager = ModelManager(RecordingHooks())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         created = await client.post(
             "/api/v1/campaigns",
@@ -167,6 +181,7 @@ async def test_campaign_accepts_image_and_generates_required_artifacts(tmp_path:
             data={
                 "name": "Launch",
                 "description": "A compact smart travel charger for global shoppers.",
+                "audio_transcription": "Prioritize portability and credible product claims.",
                 "source_market": "CN",
                 "target_markets": "US,JP",
                 "languages": "zh,en,ja",
@@ -179,6 +194,21 @@ async def test_campaign_accepts_image_and_generates_required_artifacts(tmp_path:
         export = await client.get(f"/api/v1/campaigns/{campaign_id}/export")
 
     assert completed["status"] == "completed"
+    assert completed["audio_transcription"] == "Prioritize portability and credible product claims."
+    guided_payloads = [
+        payload
+        for payload in llm_payloads
+        if payload["task"] in {"market_positioning", "buyer_persona", "multilingual_copy"}
+    ]
+    assert {payload["task"] for payload in guided_payloads} == {
+        "market_positioning",
+        "buyer_persona",
+        "multilingual_copy",
+    }
+    assert all(
+        payload["audio_transcription"] == "Prioritize portability and credible product claims."
+        for payload in guided_payloads
+    )
     assert [stage["name"] for stage in completed["stages"]] == [stage.value for stage in StageName]
     assert all(stage["status"] == "succeeded" for stage in completed["stages"])
     assert set(completed["artifacts"]["multilingual_copy"]["copy"]) == {"zh", "en", "ja"}
@@ -506,11 +536,13 @@ async def test_mounts_frontend_dist_with_spa_fallback(tmp_path: Path) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         index = await client.get("/any/client/route")
         asset = await client.get("/assets/app.js")
+        missing_asset = await client.get("/demo/missing.png")
 
     assert index.status_code == 200
     assert "OverseaArk" in index.text
     assert asset.status_code == 200
     assert "console.log" in asset.text
+    assert missing_asset.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -41,6 +41,11 @@ frontend_cmd() {
 frontend_dist_ready() {
   local dist_index="$REPO_DIR/runtime/frontend-dist/index.html"
   [[ -f "$dist_index" ]] || return 1
+  local demo_relative="demo/portable-smart-espresso-maker.png"
+  local demo_source="$REPO_DIR/frontend/public/$demo_relative"
+  local demo_dist="$REPO_DIR/runtime/frontend-dist/$demo_relative"
+  [[ -f "$demo_source" && -f "$demo_dist" ]] || return 1
+  cmp -s "$demo_source" "$demo_dist" || return 1
 
   local source
   for source in \
@@ -57,6 +62,11 @@ frontend_dist_ready() {
 
   if [[ -d "$REPO_DIR/frontend/src" ]] && \
       find "$REPO_DIR/frontend/src" -type f -newer "$dist_index" -print -quit | grep -q .; then
+    return 1
+  fi
+
+  if [[ -d "$REPO_DIR/frontend/public" ]] && \
+      find "$REPO_DIR/frontend/public" -type f -newer "$dist_index" -print -quit | grep -q .; then
     return 1
   fi
 
@@ -138,12 +148,12 @@ runtime_dependencies_ready() {
     (cd "$REPO_DIR/backend" && "$py" -c 'import app, fastapi, multipart, pydantic, uvicorn') >/dev/null 2>&1 || return 1
   fi
   [[ -f "$REPO_DIR/runtime/frontend-dist/index.html" ]] || return 1
+  have ffmpeg || return 1
 
   if [[ "$OVERSEAARK_ADAPTER_MODE" != "command" ]]; then
     return 0
   fi
 
-  have ffmpeg || return 1
   local_runtime_env
   vllm_install_ready || return 1
   command_program "$OVERSEAARK_LLM_COMMAND" >/dev/null || return 1

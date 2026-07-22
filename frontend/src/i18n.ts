@@ -22,7 +22,9 @@ export type StreamMessageKey =
   | "exportFailed"
   | "progressUpdate"
   | "detailRefreshed"
-  | "detailRefreshFailed";
+  | "detailRefreshFailed"
+  | "demoFilled"
+  | "demoFillFailed";
 
 export type StreamMessageState =
   | { kind: "localized"; key: StreamMessageKey; campaignId?: string; sequence?: number; message?: string }
@@ -254,8 +256,8 @@ export const validationMessages: Record<Locale, ValidationMessages> = {
 
 export const messages = {
   "zh-CN": {
-    documentTitle: "OverseaArk 工作台",
-    appTitle: "跨境营销活动工作台",
+    documentTitle: "DGX Spark：一支不下班的本地多模态外贸营销团队",
+    appTitle: "DGX Spark：一支不下班的本地多模态外贸营销团队",
     workspaceLabel: "营销活动工作区",
     detailArtifactsLabel: "活动详情与产物",
     createEyebrow: "创建",
@@ -263,6 +265,11 @@ export const messages = {
     refreshAria: "刷新健康和模型状态",
     refreshTitle: "刷新状态",
     languageSwitcherLabel: "界面语言",
+    demoTitle: "快速演示",
+    demoHint: "一键填入完整商品资料、中英日输出语言和可直接提交的示例图片。",
+    fillDemo: "一键填入示例",
+    fillingDemo: "正在填入...",
+    fillDemoAria: "填入可直接演示的便携式智能咖啡机示例",
     campaignName: "活动名称",
     campaignNamePlaceholder: "NVIDIA Jetson 零售演示套件",
     productImage: "产品图片",
@@ -305,6 +312,10 @@ export const messages = {
     modelStatusPending: "模型状态待确认",
     api: "API",
     model: "模型",
+    gpuGuideTitle: "在哪里查看 GPU 使用情况？",
+    gpuGuideHint: "在 DGX Spark 终端运行以下命令；第一条查看快照，第二条持续刷新利用率、功耗和温度。",
+    gpuSnapshotLabel: "快照",
+    gpuLiveLabel: "实时",
     restoredCampaign: (campaignId: string) => `已恢复活动 ${campaignId}。`,
     restoreFailedWithDetail: (message: string) => `无法恢复已保存活动：${message}`,
     restoreFailed: "无法恢复已保存活动。",
@@ -325,10 +336,12 @@ export const messages = {
     progressUpdate: (sequence: number) => `收到进度更新，序列 ${sequence}。`,
     detailRefreshed: (sequence: number) => `活动详情已刷新，序列 ${sequence}。`,
     detailRefreshFailed: "详情刷新失败。",
+    demoFilled: "演示内容和商品图片已填入，可以直接创建活动。",
+    demoFillFailed: "示例图片加载失败，请刷新页面后重试。",
   },
   en: {
-    documentTitle: "OverseaArk Workbench",
-    appTitle: "Cross-border campaign workbench",
+    documentTitle: "DGX Spark: Your always-on local multimodal export marketing team",
+    appTitle: "DGX Spark: Your always-on local multimodal export marketing team",
     workspaceLabel: "Campaign workspace",
     detailArtifactsLabel: "Campaign detail and artifacts",
     createEyebrow: "Create",
@@ -336,6 +349,11 @@ export const messages = {
     refreshAria: "Refresh health and model status",
     refreshTitle: "Refresh status",
     languageSwitcherLabel: "Interface language",
+    demoTitle: "Quick demo",
+    demoHint: "Fill complete product details, Chinese-English-Japanese outputs, and a submit-ready sample image in one click.",
+    fillDemo: "Fill demo",
+    fillingDemo: "Filling...",
+    fillDemoAria: "Fill a ready-to-run portable smart espresso maker demo",
     campaignName: "Campaign name",
     campaignNamePlaceholder: "NVIDIA Jetson retail demo kit",
     productImage: "Product image",
@@ -378,6 +396,10 @@ export const messages = {
     modelStatusPending: "Model status pending",
     api: "API",
     model: "Model",
+    gpuGuideTitle: "Where can I view GPU usage?",
+    gpuGuideHint: "Run these commands in the DGX Spark terminal. The first shows a snapshot; the second continuously reports utilization, power, and temperature.",
+    gpuSnapshotLabel: "Snapshot",
+    gpuLiveLabel: "Live",
     restoredCampaign: (campaignId: string) => `Restored campaign ${campaignId}.`,
     restoreFailedWithDetail: (message: string) => `Stored campaign could not be restored: ${message}`,
     restoreFailed: "Stored campaign could not be restored.",
@@ -398,6 +420,8 @@ export const messages = {
     progressUpdate: (sequence: number) => `Progress update received at sequence ${sequence}.`,
     detailRefreshed: (sequence: number) => `Campaign detail refreshed at sequence ${sequence}.`,
     detailRefreshFailed: "Detail refresh failed.",
+    demoFilled: "Demo content and product image are ready. You can create the campaign now.",
+    demoFillFailed: "The sample image could not be loaded. Refresh the page and try again.",
   },
 } as const;
 

@@ -38,6 +38,7 @@ check "writable pid dir" test -w "$OVERSEAARK_PID_DIR"
 check "model manifest exists" test -f "$REPO_DIR/model-manifest.lock.json"
 check_warn "python3 available" have python3
 check_warn "npm available for frontend builds" have npm
+check "ffmpeg available" have ffmpeg
 check_warn "nvidia-smi available" have nvidia-smi
 if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
   check "pinned native vLLM available" vllm_install_ready

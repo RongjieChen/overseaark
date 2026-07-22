@@ -190,6 +190,7 @@ class CampaignRunner:
             StageName.market_positioning.value,
             {
                 "description": campaign.description,
+                "audio_transcription": campaign.audio_transcription,
                 "source_market": campaign.source_market,
                 "target_markets": campaign.target_markets,
                 "languages": campaign.languages,
@@ -203,6 +204,7 @@ class CampaignRunner:
             StageName.buyer_persona.value,
             {
                 "description": campaign.description,
+                "audio_transcription": campaign.audio_transcription,
                 "positioning": context["artifacts"][StageName.market_positioning.value],
             },
         )
@@ -213,6 +215,7 @@ class CampaignRunner:
             StageName.multilingual_copy.value,
             {
                 "description": campaign.description,
+                "audio_transcription": campaign.audio_transcription,
                 "languages": campaign.languages,
                 "positioning": context["artifacts"][StageName.market_positioning.value],
                 "personas": context["artifacts"][StageName.buyer_persona.value],

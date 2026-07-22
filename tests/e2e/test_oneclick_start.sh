@@ -58,10 +58,14 @@ ensure_models
 # the frontend once, and leave the heavy bootstrap untouched. A fresh dist is
 # then idempotent.
 frontend_fixture="$tmp_dir/frontend-fixture"
-mkdir -p "$frontend_fixture/frontend/src" "$frontend_fixture/runtime/frontend-dist"
+mkdir -p "$frontend_fixture/frontend/src" "$frontend_fixture/frontend/public/demo" \
+  "$frontend_fixture/runtime/frontend-dist/demo"
 printf '<html lang="zh-CN">new source</html>\n' > "$frontend_fixture/frontend/index.html"
 printf 'console.log("new source");\n' > "$frontend_fixture/frontend/src/main.ts"
 printf '<html lang="en">old dist</html>\n' > "$frontend_fixture/runtime/frontend-dist/index.html"
+printf 'same demo bytes\n' > "$frontend_fixture/frontend/public/demo/portable-smart-espresso-maker.png"
+cp "$frontend_fixture/frontend/public/demo/portable-smart-espresso-maker.png" \
+  "$frontend_fixture/runtime/frontend-dist/demo/portable-smart-espresso-maker.png"
 touch -t 202001010000 "$frontend_fixture/runtime/frontend-dist/index.html"
 touch -t 202001010001 "$frontend_fixture/frontend/index.html" "$frontend_fixture/frontend/src/main.ts"
 
@@ -85,6 +89,46 @@ touch -t 202001010001 "$frontend_fixture/frontend/index.html" "$frontend_fixture
 )
 [[ "$(grep -c '^frontend-build$' "$STUB_STATE_DIR/frontend-build-calls")" == "1" ]]
 [[ ! -e "$STUB_STATE_DIR/frontend-bootstrap-calls" ]]
+
+# Fault: ffmpeg is a backend upload-validation dependency in mock and command
+# modes, so mock preflight must not report ready when it is absent.
+(
+  REPO_DIR="$frontend_fixture"
+  OVERSEAARK_ADAPTER_MODE=mock
+  have() { [[ "$1" != "ffmpeg" ]]; }
+  if runtime_dependencies_ready; then
+    echo "mock runtime unexpectedly passed without ffmpeg" >&2
+    exit 1
+  fi
+)
+
+# Fault: a public asset update must invalidate the built frontend even when
+# source code and configuration are older than the dist index.
+public_fixture="$tmp_dir/frontend-public-fixture"
+mkdir -p "$public_fixture/frontend/public/demo" "$public_fixture/runtime/frontend-dist/demo"
+printf '<html>fresh dist</html>\n' > "$public_fixture/runtime/frontend-dist/index.html"
+printf 'new demo image bytes\n' > "$public_fixture/frontend/public/demo/portable-smart-espresso-maker.png"
+printf 'old demo image bytes\n' > "$public_fixture/runtime/frontend-dist/demo/portable-smart-espresso-maker.png"
+touch -t 202001010000 "$public_fixture/runtime/frontend-dist/index.html"
+touch -t 202001010001 "$public_fixture/frontend/public/demo/portable-smart-espresso-maker.png"
+(
+  REPO_DIR="$public_fixture"
+  if frontend_dist_ready; then
+    echo "updated frontend/public asset unexpectedly passed freshness check" >&2
+    exit 1
+  fi
+)
+
+# Fault: deleting the required source asset must not leave a stale bundled copy
+# reported as ready.
+rm -f "$public_fixture/frontend/public/demo/portable-smart-espresso-maker.png"
+(
+  REPO_DIR="$public_fixture"
+  if frontend_dist_ready; then
+    echo "deleted required demo source unexpectedly passed freshness check" >&2
+    exit 1
+  fi
+)
 
 # Fault: the documented TUNA file prefix already ends in /packages/. Cosmos
 # lock rewriting must not generate an invalid /packages/packages/ URL.

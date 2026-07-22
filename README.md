@@ -1,8 +1,10 @@
-# OverseaArk
+# DGX Spark：一支不下班的本地多模态外贸营销团队
 
 OverseaArk is a local-first multimodal campaign workbench for cross-border sellers on NVIDIA DGX Spark. The repository is a single monorepo: FastAPI backend, Vite TypeScript frontend, local model adapters, lifecycle scripts, tests, and the pinned model manifest all live here. There is no Docker path and no cloud inference path.
 
 The implemented demo flow accepts one product image and product description, runs six serialized stages, and exports a zip package containing campaign copy, poster, narration audio, composed video, QC report, and model provenance.
+
+The web workbench includes a **Fill demo / 一键填入示例** action. It loads a repository-owned product image and complete localized product brief into the existing upload and campaign form, so a live demonstration only needs one review click followed by **Create campaign / 创建活动**.
 
 ## Current Status
 
@@ -36,7 +38,7 @@ The implemented demo flow accepts one product image and product description, run
 
 ### 实机结果与优化过程
 
-native vLLM Run9 六阶段全部一次成功，端到端用时 `580.147s`。该轮输出 15 秒、854×480、H.264/AAC 的真实 Cosmos 视频和 23 文件 ZIP；中、英、日 TTS 回听相似度分别为 `0.9375`、`1.0`、`0.9189`。优化过程包括把 Step1X 演示默认值从 8 步调整到经独立基准验证的 6 步、将 FlashInfer 首次 JIT 编译并行度限制为 1 以避免统一内存 OOM、让中文和日文视频脚本避免不可直接发音的拉丁缩写，以及在重型阶段前卸载 vLLM。完整本地回归包括 54 个后端测试、15 个前端测试和 14 个 HTTP Mock E2E；DGX 上另有 23 个安全与运行时聚焦测试。
+native vLLM Run9 六阶段全部一次成功，端到端用时 `580.147s`。该轮输出 15 秒、854×480、H.264/AAC 的真实 Cosmos 视频和 23 文件 ZIP；中、英、日 TTS 回听相似度分别为 `0.9375`、`1.0`、`0.9189`。优化过程包括把 Step1X 演示默认值从 8 步调整到经独立基准验证的 6 步、将 FlashInfer 首次 JIT 编译并行度限制为 1 以避免统一内存 OOM、让中文和日文视频脚本避免不可直接发音的拉丁缩写，以及在重型阶段前卸载 vLLM。完整本地回归包括 64 个后端测试、18 个前端测试和 14 个 HTTP Mock E2E；DGX 上另有 23 个安全与运行时聚焦测试。
 
 ### 团队分工与贡献
 
@@ -97,6 +99,26 @@ Useful lifecycle commands:
 ./overseaark llm stop
 ./overseaark stop
 ```
+
+### GPU usage
+
+Run these commands in the DGX Spark SSH terminal while a campaign is active:
+
+```bash
+# One-time snapshot
+nvidia-smi
+
+# Live utilization, power, clocks, temperature, and PCIe activity
+nvidia-smi dmon -s pucvmet
+```
+
+When the background monitor used for the live demo is running, its output is available at:
+
+```bash
+tail -f /home/Developer/overseaark-data/logs/gpu-dmon.log
+```
+
+DGX Spark uses unified CPU/GPU memory. Some per-process memory columns can therefore appear as `N/A` or `Not Supported` in `nvidia-smi`; use `free -h` alongside it to inspect total unified-memory pressure.
 
 ## Configuration
 
