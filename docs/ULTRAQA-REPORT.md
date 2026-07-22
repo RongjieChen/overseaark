@@ -5,13 +5,13 @@
 - Goal: adversarially verify the one-command native DGX Spark application, six-stage campaign behavior, automatic model repair, offline adapter boundary, recovery behavior, and truthful export semantics.
 - Stop condition: baseline build/tests and the hostile dynamic scenario matrix pass; discovered product defects have regression tests; temporary processes/state are cleaned; real DGX evidence is recorded without overstating the result.
 - Safety bounds applied: localhost and the supplied DGX host only; no destructive repository reset, credential output, Docker, cloud inference, public bind, or unbounded process wait.
-- Result: **ULTRAQA COMPLETE for the implemented native vLLM scope.** The current suite passes, discovered security/robustness defects have regression tests, native vLLM Run9 completed in 580.147 seconds, and generated video/ZIP/provenance evidence was verified. The stricter three-consecutive-run performance criterion remains open with one qualifying native vLLM run.
+- Result: **ULTRAQA COMPLETE for the implemented native vLLM and safe-warm scope.** The current suite passes, discovered security/robustness defects have regression tests, the deployed build completed UQ-14 in 451.296 seconds, complete/scoped exports were verified, and UQ-15 proved active-TTS cancellation plus automatic worker recovery. The stricter three-consecutive-run performance criterion remains open.
 
 ## Scenario matrix
 
 | ID | User/attacker model | Scenario | Command/harness | Expected signal | Actual result | Status | Evidence | Cleanup |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| ADV-E2E-001 | Normal seller | One-command mock startup, six stages, SSE, export, cancel/rerun | `./overseaark test` | All native suites pass | 54 backend, 15 frontend, 14 HTTP E2E; build and lifecycle passed | Pass | Terminal output and CI-equivalent commands below | Backend stopped by lifecycle test |
+| ADV-E2E-001 | Normal seller | One-command mock startup, six stages, SSE, export, cancel/rerun | `./overseaark test` | All native suites pass | 84 backend, 25 frontend, 14 HTTP E2E; typecheck, build, lifecycle, and backend smoke passed | Pass | Terminal output and CI-equivalent commands below | Backend stopped by lifecycle test |
 | ADV-E2E-002 | Malformed client | Wrong JSON encoding, forged image/audio bytes, empty/oversized image, unsupported path-like language | Live localhost harness plus `test_upload_boundaries.py` | 400/413/415/422; no accepted forged file | MIME and container signatures are checked; twelve upload-boundary tests pass | Pass | Dynamic harness JSON and pytest | UUID uploads isolated in temporary data dir |
 | ADV-E2E-003 | Prompt-injection attacker | Chinese/Unicode prompt asks to execute shell, read `/etc/passwd`, skip QC, and claim success | Live localhost campaign plus command-adapter JSON round-trip test | Text remains inert data; no marker created | Campaign completed in mock mode; description preserved; marker absent; command adapter round-tripped exact JSON | Pass | `test_command_payload_treats_prompt_injection_as_inert_json` | Marker confirmed absent |
 | ADV-E2E-004 | Repeated/interrupted user | Double cancel, cancel then rerun, rerun while already running | Live localhost harness, API and adversarial pipeline tests | Idempotent terminal state; fresh rerun completes; concurrent rerun is 409 | Double cancel stayed `cancelled`; rerun completed; active rerun returned 409 | Pass | `test_cancel_during_inflight_stage_remains_cancelled`, `test_rerun_running_campaign_returns_conflict` | No live campaign task or port remains |
@@ -26,10 +26,12 @@
 | ADV-E2E-013 | vLLM migration operator | Native vLLM 0.25.1 Campaign on `nvidia/Qwen3.6-35B-A3B-NVFP4` | DGX runs 8 and 9 | Full Campaign reaches terminal `completed`, outputs verify, and failure stays truthful | Run8 stayed `partial` on low Chinese QC; speech-native prompt fix applied; Run9 completed all stages once in `580.147s` | Pass after fix | Campaign JSON, ffprobe, ZIP integrity, SHA-256, model manifest | vLLM and all heavy adapters stopped; only FastAPI and unrelated desktop process remained |
 | ADV-E2E-014 | Malicious local adapter | Adapter returns an outside path or an in-tree symlink to a secret outside the Campaign directory | Hostile hook plus `test_export_security.py` | Outside files are never read by QC or copied into ZIP | Reproduced disclosure before fix; resolved-path boundary rejects direct and symlink escape before read/export | Pass after fix | Six export/partial security regressions | Temporary secret and Campaign tree removed by pytest |
 | ADV-E2E-015 | Constrained-network operator | CUDA dependency bootstrap bypasses configured mirror | Static lifecycle contract and mirror probes | TUNA remains primary PyPI; CUDA PyTorch uses configured reachable mirror | Three PyTorch installs now use `OVERSEAARK_PYTORCH_INDEX`; default corrected to reachable Aliyun cu130 | Pass after fix | Runtime contract tests and HTTP 200 mirror probe | No package state changed by probe |
+| ADV-E2E-016 | Real safe-warm DGX operator | Complete zh/en/ja Campaign while ASR/TTS remain resident and heavy visual models load on demand | Deployed API Campaign `95e8efa8-7dbd-4285-b05a-8db54429d340`, assets, four exports, model/PID snapshots, and log scan | Six stages succeed; QC >=0.75; scoped exports do not leak languages; resident PIDs do not churn; no OOM/CUDA/137 | Completed in `451.296s`; all six stages passed on attempt 1; zh/en/ja `0.8333`/`1.0`/`0.88`; all four ZIPs passed; ASR/TTS stayed at starts `1`; error scan `0` | Pass | `/tmp/uq14_evidence_95e8efa8-7dbd-4285-b05a-8db54429d340` on DGX plus values below | Completion evidence captured before the dedicated Campaign was reused for UQ-15 |
+| ADV-E2E-017 | Interrupting DGX operator | Cancel only after the resident TTS worker is demonstrably executing, then verify cleanup and safe-warm recovery | Media-only rerun, `/proc/<pid>/stat` activity trigger, cancel API, PID/start-count and orphan-process assertions | Old TTS process dies; new ready worker has different PID and incremented starts; early artifacts remain; later stages skip; ASR survives; health returns ready | CPU ticks rose `2336 -> 2339` with vLLM absent; old PID `3387744` died; PID `3442143` returned at starts `2`; ASR PID/starts unchanged; no heavy orphan or recent OOM/CUDA/137 | Pass | `/tmp/uq15_evidence_95e8efa8-7dbd-4285-b05a-8db54429d340` on DGX plus values below | Service intentionally left running and ready; cancelled Campaign retained as audit history |
 
 ## Commands run
 
-- `[0] ./overseaark test` — current full baseline: backend 54, frontend 15, TypeScript/Vite build, one-click corrupt/missing-model lifecycle, and HTTP E2E 14 all passed.
+- `[0] OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark test` — current full baseline: backend 84, frontend 25, TypeScript/Vite build, one-click corrupt/missing-model lifecycle, backend smoke, and HTTP E2E 14 all passed.
 - `[0] backend/.venv/bin/python -m compileall -q backend/app backend/tests` — Python static import/compile check; Ruff was not installed and no dependency was added solely for QA.
 - `[0] backend/.venv/bin/python -m pytest ...` repeated three times — 21 targeted adversarial tests passed in all three cycles.
 - `[0] localhost:18080 hostile HTTP harness` — malformed body, forged image, unsupported language, prompt injection, hostile SSE cursor, repeated cancel, and cancel/rerun all produced expected results.
@@ -39,6 +41,8 @@
 - `[0] ffprobe/zip/SHA-256 verification for runs 3 and 4` — 15-second 854x480 H.264/AAC videos and structurally valid export zips.
 - `[0] native vLLM Run9 DGX verification` — 580.147-second completed Campaign; 15-second 854x480 H.264/AAC; 23-member ZIP; three SHA-256 captures; all six stage attempts equal 1.
 - `[0] DGX focused post-fix tests` — 23/23 export, upload, and native vLLM runtime contract tests passed on the target machine.
+- `[0] deployed UQ-14 real Campaign` — completed all six stages in 451.296 seconds; all attempts were 1; seven asset endpoints returned 200; full and zh/en/ja ZIPs passed `ZipFile.testzip()` and language isolation; resident ASR/TTS PIDs and start counts were unchanged.
+- `[0] deployed UQ-15 active-TTS cancellation` — waited for the resident TTS process CPU ticks to advance with vLLM absent, cancelled, verified the old process died, then waited for safe-warm to return a new ready TTS worker with `starts=2`; health remained `ok` and no heavy-process orphan remained.
 
 ## Failures found
 
@@ -50,6 +54,7 @@
 - Bootstrap robustness: three CUDA PyTorch installs ignored `OVERSEAARK_PYTORCH_INDEX` and used a hard-coded upstream URL; the previous default mirror path also targeted cu129 while the runtime uses cu130.
 - Harness apparatus: the first live HTTP probe separated service startup and test into different managed command sessions; the desktop executor cleaned the child process when the first session ended. This did not exercise product behavior and was rerun correctly in a single bounded session.
 - Performance evidence: real runs 2 and 3 exceeded the <=10-minute target by 34 and 45 seconds. Run 4 subsequently passed at 590.003 seconds; the report still does not claim the stricter three-consecutive-run criterion.
+- UQ-15 harness timing: the first cancellation attempt happened while the media stage was still stopping vLLM, before the TTS request began. Campaign cancellation behaved correctly, but that attempt could not prove TTS process cleanup. The test was rerun with a `/proc` CPU-tick trigger; only the second, active-worker attempt is counted as the process-cleanup proof.
 
 ## Fixes applied
 
@@ -67,6 +72,7 @@
 - `backend/app/main.py` plus `test_upload_boundaries.py`: validate WAV, MP3, M4A, and WebM container signatures against the declared MIME type.
 - `scripts/bootstrap.sh` and `scripts/lib/common.sh`: keep TUNA as primary pip index and route CUDA PyTorch through the configurable Aliyun cu130 mirror.
 - `scripts/adapters/llm_step.py`: require Chinese/Japanese video scripts to expand Latin abbreviations into pronounceable local-language text; Run9 then passed all ASR checks without retry.
+- No code change was needed for UQ-15: the active-worker trigger confirmed the existing resident-adapter cancellation path terminates the worker process group and safe-warm recreates it.
 
 ## Cleanup and rollback
 
@@ -76,10 +82,12 @@
 - The first failed harness left no product edit and was rerun with corrected process lifetime.
 - `.omx` UltraQA state is cleared with `omx state clear`, not by deleting runtime state manually.
 - Intentional source, tests, documentation, DOCX, and this report remain tracked.
+- UQ-14 completion evidence was captured before its dedicated QA Campaign was intentionally reused for UQ-15. Its event history and `/tmp/uq14_evidence_*` snapshot remain on the DGX; the final live Campaign state is truthfully `cancelled` after the media-only adversarial rerun.
+- The deployed service remains bound to `127.0.0.1:8000`, with vLLM prewarmed and ASR/TTS workers ready. No Step1X/Cosmos child was left after cancellation.
 
 ## Residual risks
 
-- Native vLLM Run9 met the <=10-minute full-flow target at 580.147 seconds. It is the first qualifying native vLLM run; two further consecutive qualifying runs are required before AT-001 can be marked complete.
+- Native vLLM Run9 and UQ-14 independently met the <=10-minute full-flow target at 580.147 and 451.296 seconds. They do not establish a three-consecutive-run series on the exact current build, so the strict PRD performance criterion remains open.
 - Runtime network isolation is enforced by offline environment variables and localhost URL validation, but no kernel-level packet-capture audit was run during the supplied real campaign.
 - Real image/video quality remains sample-dependent; the automated contract verifies provenance, file validity, fallback labeling, and audio similarity rather than subjective brand quality.
 - Ruff is configured but was not installed in the local test venv; `compileall`, pytest, TypeScript type checking, and Vite build were used without adding a new dependency.
@@ -101,4 +109,10 @@
 - Run9 ASR/TTS similarity: zh `0.9375`, en `1.0`, ja `0.9189189`; no retries.
 - Run9 output: 15.0-second 854x480 at 24 fps, H.264/AAC; valid 23-member ZIP; no degraded fallback.
 - Run9 SHA-256: poster `e23fec9282a66f35af7582c53906f0a9321712104e33d2821a057379c61b11fe`; video `949f242aa6ddc1a74960636d7b38c5e65d919535a397c4f7dc72072bb11d320d`; ZIP `c8f5d3fefdea3334aed9f7c11f464fb7561303d9684a889bbf4033eb62301efc`.
+- UQ-14 campaign `95e8efa8-7dbd-4285-b05a-8db54429d340`: created `2026-07-22T08:50:58.268919Z`, completed `08:58:29.564934Z`, total `451.296015s`; all six stages succeeded on attempt 1.
+- UQ-14 stage durations: market `5.395s`, persona `10.906s`, multilingual copy `18.046s`, Step1X `215.874s`, media `195.465s`, packaging `5.526s`.
+- UQ-14 audio similarity: zh `0.833333`, en `1.0`, ja `0.88`, all with zero retry; Cosmos video quality `standard`, offline inference `true`.
+- UQ-14 exports: full `8,688,765` bytes, zh `4,995,999`, en `7,768,347`, ja `4,986,145`; all four had `testzip=null`, and scoped archives contained only their requested language metadata/assets.
+- UQ-14 residency: ASR PID `3387194`/starts `1` and TTS PID `3387744`/starts `1` were identical before and after the full Campaign; campaign-window backend and LLM scans found zero OOM/CUDA/137/error matches.
+- UQ-15 active cancellation: TTS CPU ticks advanced `2336 -> 2339` with zero vLLM serve process at the trigger; old PID `3387744` terminated, new ready PID `3442143` returned with starts `2`, ASR remained PID `3387194`/starts `1`, health was `ok`, warmup was `ready`, and heavy-orphan scan was empty.
 - PRD verification: macOS Quick Look rendered the Chinese text correctly; DOCX a11y findings 0; 14/14 tables passed geometry audit.

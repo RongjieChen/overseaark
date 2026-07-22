@@ -410,8 +410,10 @@ The historical DGX handoff included successful real E2E results on the previous 
 | Run 7 | Old-runtime cold-start run completed in 9m12s. Keep this as legacy evidence only; it is not vLLM acceptance evidence. |
 | Run 8 | Native vLLM reached every generation stage, then remained `partial` after mixed-script Chinese narration failed the fixed `0.75` ASR threshold across retries. |
 | Run 9 | Native vLLM completed all six stages on first attempts in `580.147s`; zh/en/ja similarity `0.9375`/`1.0`/`0.9189`; real 854x480 H.264/AAC video and 23-member ZIP verified. |
+| UQ-14 | The deployed safe-warm build completed campaign `95e8efa8-7dbd-4285-b05a-8db54429d340` in `451.296s`; every stage passed on attempt 1, zh/en/ja similarity was `0.8333`/`1.0`/`0.88`, and the complete plus three scoped ZIPs passed integrity and language-isolation checks. ASR/TTS PIDs and start counts stayed unchanged across the full run. |
+| UQ-15 | A media-only rerun was cancelled only after the resident TTS process showed active CPU work and vLLM was absent. The old TTS PID `3387744` terminated, a ready worker returned as PID `3442143`, its start count increased from `1` to `2`, ASR stayed on its original PID, and no Step1X/Cosmos orphan or CUDA/OOM error remained. |
 
-Treat these as DGX E2E status notes, not a replacement for benchmark JSON under `OVERSEAARK_DATA_DIR/benchmarks/`. Run 9 is the first qualifying native vLLM <=10-minute result. The stricter acceptance criterion still requires two further consecutive qualifying native vLLM campaigns after run 9.
+Treat these as DGX E2E status notes, not a replacement for benchmark JSON under `OVERSEAARK_DATA_DIR/benchmarks/`. Run 9 and UQ-14 are separate qualifying native vLLM <=10-minute results, but they do not establish the stricter requirement of three consecutive qualifying campaigns on the exact current build.
 
 ## Troubleshooting
 
