@@ -234,7 +234,9 @@ native_command="$(vllm_command)"
 [[ "$native_command" == *"--enable-chunked-prefill"* ]]
 [[ "$native_command" == *"--async-scheduling"* ]]
 [[ "$native_command" == *"--enable-prefix-caching"* ]]
-[[ "$native_command" == *'"method":"mtp"'* ]]
+# Bash versions render printf %q with different quote/backslash styles. Verify
+# the ordered speculative config fields without depending on that rendering.
+[[ "$native_command" == *method*mtp*num_speculative_tokens* ]]
 [[ "$native_command" == *"--load-format fastsafetensors"* ]]
 [[ "$native_command" == *"--reasoning-parser qwen3"* ]]
 [[ "$native_command" == *"--tool-call-parser qwen3_xml"* ]]
