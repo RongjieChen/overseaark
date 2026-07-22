@@ -54,6 +54,41 @@ ensure_models
 ensure_models
 [[ "$(grep -c '^sync$' "$STUB_STATE_DIR/model-calls")" == "1" ]]
 
+# Fault: a source update must invalidate an existing frontend dist and trigger
+# the resumable bootstrap exactly once. A fresh rebuilt dist remains idempotent.
+frontend_fixture="$tmp_dir/frontend-fixture"
+mkdir -p "$frontend_fixture/frontend/src" "$frontend_fixture/runtime/frontend-dist"
+printf '<html lang="zh-CN">new source</html>\n' > "$frontend_fixture/frontend/index.html"
+printf 'console.log("new source");\n' > "$frontend_fixture/frontend/src/main.ts"
+printf '<html lang="en">old dist</html>\n' > "$frontend_fixture/runtime/frontend-dist/index.html"
+touch -t 202001010000 "$frontend_fixture/runtime/frontend-dist/index.html"
+touch -t 202001010001 "$frontend_fixture/frontend/index.html" "$frontend_fixture/frontend/src/main.ts"
+
+frontend_bootstrap="$tmp_dir/frontend-bootstrap-stub.sh"
+cat > "$frontend_bootstrap" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'frontend-bootstrap\n' >> "$STUB_STATE_DIR/frontend-bootstrap-calls"
+cp "$FRONTEND_FIXTURE/frontend/index.html" "$FRONTEND_FIXTURE/runtime/frontend-dist/index.html"
+touch "$FRONTEND_FIXTURE/runtime/frontend-dist/index.html"
+SH
+chmod +x "$frontend_bootstrap"
+
+(
+  export FRONTEND_FIXTURE="$frontend_fixture"
+  REPO_DIR="$frontend_fixture"
+  bootstrap_script="$frontend_bootstrap"
+  OVERSEAARK_ADAPTER_MODE=mock
+  if runtime_dependencies_ready; then
+    echo "stale frontend dist unexpectedly passed readiness check" >&2
+    exit 1
+  fi
+  ensure_runtime_dependencies
+  frontend_dist_ready
+  ensure_runtime_dependencies
+)
+[[ "$(grep -c '^frontend-bootstrap$' "$STUB_STATE_DIR/frontend-bootstrap-calls")" == "1" ]]
+
 # Fault: runtime dependencies absent. Expect exactly one resumable bootstrap.
 runtime_dependencies_ready() { [[ -f "$STUB_STATE_DIR/runtime-valid" ]]; }
 ensure_runtime_dependencies

@@ -35,14 +35,32 @@ backend_cmd() {
 }
 
 frontend_cmd() {
-  local py
-  py="$(python_bin)" || return 1
+  frontend_dist_ready
+}
 
-  if [[ -d "$REPO_DIR/runtime/frontend-dist" || -d "$REPO_DIR/frontend/dist" ]]; then
-    return 0
-  else
+frontend_dist_ready() {
+  local dist_index="$REPO_DIR/runtime/frontend-dist/index.html"
+  [[ -f "$dist_index" ]] || return 1
+
+  local source
+  for source in \
+    "$REPO_DIR/frontend/index.html" \
+    "$REPO_DIR/frontend/package.json" \
+    "$REPO_DIR/frontend/package-lock.json" \
+    "$REPO_DIR/frontend/pnpm-lock.yaml" \
+    "$REPO_DIR/frontend/vite.config.ts" \
+    "$REPO_DIR/frontend"/tsconfig*.json; do
+    if [[ -f "$source" && "$source" -nt "$dist_index" ]]; then
+      return 1
+    fi
+  done
+
+  if [[ -d "$REPO_DIR/frontend/src" ]] && \
+      find "$REPO_DIR/frontend/src" -type f -newer "$dist_index" -print -quit | grep -q .; then
     return 1
   fi
+
+  return 0
 }
 
 command_program() {
@@ -73,7 +91,7 @@ runtime_dependencies_ready() {
   if [[ -f "$REPO_DIR/backend/app/main.py" ]]; then
     (cd "$REPO_DIR/backend" && "$py" -c 'import app, fastapi, multipart, pydantic, uvicorn') >/dev/null 2>&1 || return 1
   fi
-  [[ -f "$REPO_DIR/runtime/frontend-dist/index.html" ]] || return 1
+  frontend_dist_ready || return 1
 
   if [[ "$OVERSEAARK_ADAPTER_MODE" != "command" ]]; then
     return 0
@@ -303,8 +321,10 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
         status_vllm
       fi
-      if [[ -d "$REPO_DIR/runtime/frontend-dist" || -d "$REPO_DIR/frontend/dist" ]]; then
+      if frontend_dist_ready; then
         printf '%-10s built\n' "frontend"
+      elif [[ -f "$REPO_DIR/runtime/frontend-dist/index.html" ]]; then
+        printf '%-10s stale-dist\n' "frontend"
       else
         printf '%-10s missing-dist\n' "frontend"
       fi
