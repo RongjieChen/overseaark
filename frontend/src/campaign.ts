@@ -1,4 +1,5 @@
 import type {
+  Artifact,
   CampaignDetail,
   CampaignEvent,
   CampaignStage,
@@ -124,9 +125,13 @@ export function statusTone(status: CampaignStatus | StageState): "neutral" | "go
 }
 
 export function mergeCampaignEvent(current: CampaignDetail, event: CampaignEvent): CampaignDetail {
+  if (!Number.isSafeInteger(event.sequence) || event.sequence <= current.sequence) {
+    return current;
+  }
+
   const next: CampaignDetail = {
     ...current,
-    sequence: Math.max(current.sequence, event.sequence),
+    sequence: event.sequence,
     stages: current.stages.map((stage) => ({ ...stage })),
     artifacts: [...current.artifacts],
     warnings: [...current.warnings],
@@ -134,13 +139,22 @@ export function mergeCampaignEvent(current: CampaignDetail, event: CampaignEvent
 
   if (event.campaign) {
     Object.assign(next, event.campaign);
+    next.sequence = event.sequence;
     next.stages = event.campaign.stages ? [...event.campaign.stages] : next.stages;
-    next.artifacts = event.campaign.artifacts ? [...event.campaign.artifacts] : next.artifacts;
-    next.warnings = event.campaign.warnings ? [...event.campaign.warnings] : next.warnings;
+    next.artifacts = event.campaign.artifacts
+      ? mergeArtifacts(next.artifacts, event.campaign.artifacts)
+      : next.artifacts;
+    next.warnings = event.campaign.warnings
+      ? [...new Set([...next.warnings, ...event.campaign.warnings])]
+      : next.warnings;
   }
 
   if (event.stage) {
-    const eventStage = normalizeEventStage(event.stage, event.status, event.message);
+    const eventStage = normalizeEventStage(
+      event.stage,
+      stageStateFromEventType(event.type) ?? event.status,
+      event.message,
+    );
     const index = next.stages.findIndex((stage) => stage.key === eventStage.key);
     const mergedStage = {
       ...(index >= 0 ? next.stages[index] : fallbackStage(eventStage.key)),
@@ -154,14 +168,10 @@ export function mergeCampaignEvent(current: CampaignDetail, event: CampaignEvent
     }
   }
 
-  if (event.artifact) {
-    const index = next.artifacts.findIndex((artifact) => artifact.id === event.artifact?.id);
-    if (index >= 0) {
-      next.artifacts[index] = event.artifact;
-    } else {
-      next.artifacts.push(event.artifact);
-    }
-  }
+  next.artifacts = mergeArtifacts(
+    next.artifacts,
+    [...(event.artifacts ?? []), ...(event.artifact ? [event.artifact] : [])],
+  );
 
   if (event.type === "warning" && event.message && !next.warnings.includes(event.message)) {
     next.warnings.push(event.message);
@@ -171,12 +181,56 @@ export function mergeCampaignEvent(current: CampaignDetail, event: CampaignEvent
     next.status = normalizeCampaignStatus(event.status);
   }
 
-  if (event.type.includes("error") || event.type.includes("failed")) {
+  if (event.type === "campaign.error" || event.type === "campaign.failed") {
     next.status = "failed";
     next.error = event.message ?? next.error;
   }
 
   return next;
+}
+
+function mergeArtifacts(current: readonly Artifact[], incoming: readonly Artifact[]): Artifact[] {
+  const merged = [...current];
+  incoming.forEach((artifact) => {
+    const index = merged.findIndex((candidate) => candidate.id === artifact.id);
+    if (index >= 0) {
+      merged[index] = artifact;
+    } else {
+      merged.push(artifact);
+    }
+  });
+  return merged;
+}
+
+function stageStateFromEventType(type: string): StageState | undefined {
+  if (type === "stage.succeeded" || type === "stage.completed") {
+    return "complete";
+  }
+
+  if (type === "stage.failed") {
+    return "failed";
+  }
+
+  if (type === "stage.skipped") {
+    return "skipped";
+  }
+
+  if (type === "stage.started" || type === "stage.running" || type === "stage.retry") {
+    return "running";
+  }
+
+  return undefined;
+}
+
+export function selectLocalizedArtifacts(artifacts: readonly Artifact[], language: LanguageCode): Artifact[] {
+  return artifacts.filter((artifact) =>
+    (artifact.stage === "multilingual_copy" && artifact.kind === "copy" && artifact.language === language) ||
+    (artifact.stage === "media_production" && artifact.kind === "audio" && artifact.language === language),
+  );
+}
+
+export function artifactsForStage(artifacts: readonly Artifact[], stage: CampaignStageKey): Artifact[] {
+  return artifacts.filter((artifact) => artifact.stage === stage);
 }
 
 function fallbackStage(key: CampaignStageKey): CampaignStage {

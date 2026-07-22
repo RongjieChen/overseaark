@@ -113,6 +113,8 @@ class ModelInfo(BaseModel):
     mode: str
     offline: bool
     serialized: bool = True
+    all_models_resident: bool = False
+    residency: dict[str, Any] = Field(default_factory=dict)
 
 
 class HealthResponse(BaseModel):

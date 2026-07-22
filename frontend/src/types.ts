@@ -40,9 +40,12 @@ export interface CampaignStage {
 export interface Artifact {
   id: string;
   title: string;
-  language: LanguageCode;
-  kind: "copy" | "brief" | "image_prompt" | "audio" | "export" | "diagnostic";
+  stage: CampaignStageKey;
+  key: string;
+  language?: LanguageCode;
+  kind: "copy" | "brief" | "image_prompt" | "poster" | "audio" | "video" | "export" | "diagnostic";
   content: string;
+  assetKey?: "source" | "poster" | "video" | "audio-zh" | "audio-en" | "audio-ja" | "qc";
   quality?: "final" | "partial" | "degraded";
   titleContext?: {
     stage: CampaignStageKey;
@@ -71,8 +74,9 @@ export interface CampaignEvent {
   campaign?: Partial<CampaignDetail>;
   stage?: (Partial<CampaignStage> & { key: CampaignStageKey }) | CampaignStageKey | string;
   artifact?: Artifact;
+  artifacts?: Artifact[];
   message?: string;
-  payload?: unknown;
+  payload?: Record<string, unknown>;
 }
 
 export interface HealthStatus {

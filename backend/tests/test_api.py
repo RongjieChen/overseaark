@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import app.main as main_module
 from app.adapters import (
     AdapterError,
     MockModelHooks,
@@ -33,6 +34,60 @@ WAV_ONE_SAMPLE = (
 
 def make_app(tmp_path: Path):
     return create_app(Settings(data_dir=tmp_path, adapter_mode="mock"))
+
+
+class _WarmupProbeManager:
+    mode = "command"
+
+    def __init__(self, *, failure: Exception | None = None) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.failure = failure
+        self.cleaned = False
+        self.preparation = {
+            "status": "pending",
+            "reason": "startup",
+            "result": {},
+            "error": None,
+        }
+
+    def preparation_status(self) -> dict:
+        return dict(self.preparation)
+
+    async def prepare_idle(self, reason: str = "idle") -> dict:
+        self.preparation.update(status="warming", reason=reason, result={}, error=None)
+        self.started.set()
+        if self.failure is not None:
+            self.preparation.update(status="degraded", error=str(self.failure))
+            raise self.failure
+        await self.release.wait()
+        result = {"llm": {"ready": True}, "workers": {"asr": {"ready": True}}}
+        self.preparation.update(status="ready", result=result, error=None)
+        return result
+
+    async def worker_status(self) -> dict:
+        return {
+            "mode": "command",
+            "resident_adapters": ["asr", "tts"],
+            "workers": {"asr": {"ready": True}},
+            "keep_vllm_resident": False,
+        }
+
+    async def cleanup(self) -> None:
+        self.cleaned = True
+
+
+def _command_settings(tmp_path: Path) -> Settings:
+    return Settings(
+        data_dir=tmp_path,
+        adapter_mode="command",
+        llm_command="llm",
+        llm_control_command="llm-control",
+        image_command="image",
+        video_command="video",
+        asr_command="asr",
+        tts_command="tts",
+    )
 
 
 @pytest.mark.asyncio
@@ -157,10 +212,87 @@ async def test_health_models_and_uploaded_audio_transcription(tmp_path: Path) ->
         "mode": "mock",
         "offline": True,
         "serialized": True,
+        "all_models_resident": False,
+        "residency": {
+            "mode": "mock",
+            "resident_adapters": [],
+            "workers": {},
+            "strategy": "safe-warm",
+            "llm_policy": "prewarmed-between-campaigns",
+            "video_policy": "on-demand-cosmos-cli",
+            "warmup": {
+                "status": "ready",
+                "reason": "mock adapters need no GPU warmup",
+                "result": {},
+                "error": None,
+            },
+        },
     }
     assert transcription.status_code == 200
     assert transcription.json()["language"] == "ja"
     assert transcription.json()["model"] == "nvidia/nemotron-3.5-asr-streaming-0.6b"
+
+
+@pytest.mark.asyncio
+async def test_startup_model_warmup_does_not_block_health_or_models(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _WarmupProbeManager()
+    monkeypatch.setattr(main_module, "build_model_manager", lambda *args, **kwargs: manager)
+    app = create_app(_command_settings(tmp_path))
+
+    async with app.router.lifespan_context(app):
+        await asyncio.wait_for(manager.started.wait(), timeout=1)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            health = await asyncio.wait_for(client.get("/api/v1/health"), timeout=0.5)
+            models = await asyncio.wait_for(client.get("/api/v1/models"), timeout=0.5)
+
+        assert health.status_code == 200
+        assert health.json()["model_status"] == "warming"
+        assert models.status_code == 200
+        assert models.json()["residency"]["warmup"]["status"] == "warming"
+        assert models.json()["residency"]["resident_adapters"] == ["asr", "tts"]
+
+        manager.release.set()
+        for _ in range(100):
+            if app.state.model_warmup_status()["status"] == "ready":
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("background model warmup did not finish")
+
+    assert manager.cleaned is True
+
+
+@pytest.mark.asyncio
+async def test_startup_model_warmup_failure_is_degraded_not_fatal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _WarmupProbeManager(failure=RuntimeError("CUDA warmup failed"))
+    monkeypatch.setattr(main_module, "build_model_manager", lambda *args, **kwargs: manager)
+    app = create_app(_command_settings(tmp_path))
+
+    async with app.router.lifespan_context(app):
+        await asyncio.wait_for(manager.started.wait(), timeout=1)
+        for _ in range(100):
+            if app.state.model_warmup_status()["status"] == "degraded":
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("failed warmup was not reported as degraded")
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            health = await client.get("/api/v1/health")
+            models = await client.get("/api/v1/models")
+
+        assert health.status_code == 200
+        assert health.json()["model_status"] == "degraded"
+        assert models.status_code == 200
+        warmup = models.json()["residency"]["warmup"]
+        assert warmup["status"] == "degraded"
+        assert warmup["error"] == "CUDA warmup failed"
+
+    assert manager.cleaned is True
 
 
 @pytest.mark.asyncio
@@ -192,6 +324,7 @@ async def test_campaign_accepts_image_and_generates_required_artifacts(tmp_path:
 
         completed = await wait_for_terminal(client, campaign_id)
         export = await client.get(f"/api/v1/campaigns/{campaign_id}/export")
+        english_export = await client.get(f"/api/v1/campaigns/{campaign_id}/export?language=en")
 
     assert completed["status"] == "completed"
     assert completed["audio_transcription"] == "Prioritize portability and credible product claims."
@@ -238,6 +371,18 @@ async def test_campaign_accepts_image_and_generates_required_artifacts(tmp_path:
     assert {f"stages/{stage.value}.json" for stage in StageName} <= names
     assert {"copy/zh.json", "copy/en.json", "copy/ja.json"} <= names
     assert {"poster.png", "audio/zh.wav", "audio/en.wav", "audio/ja.wav", "video.mp4"} <= names
+    assert {"zh/", "en/", "ja/"} <= names
+    assert {
+        "zh/copy.json",
+        "zh/audio.wav",
+        "en/copy.json",
+        "en/audio.wav",
+        "ja/copy.json",
+        "ja/audio.wav",
+        "shared/poster.png",
+        "shared/video.mp4",
+        "shared/qc_report.json",
+    } <= names
     assert any(name.startswith("source_image.") for name in names)
     assert manifest["offline_inference"] is True
     assert {item["id"] for item in manifest["model_manifest"]} >= {
@@ -245,6 +390,79 @@ async def test_campaign_accepts_image_and_generates_required_artifacts(tmp_path:
         "magpie-tts-multilingual-357m",
     }
     assert manifest["model_calls"]
+    assert english_export.status_code == 200
+    assert "overseaark-launch-en.zip" in english_export.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(english_export.content)) as archive:
+        english_names = set(archive.namelist())
+        english_manifest = json.loads(archive.read("manifest.json"))
+    assert {"en/", "en/copy.json", "en/audio.wav", "copy/en.json", "audio/en.wav"} <= english_names
+    assert "zh/copy.json" not in english_names
+    assert "ja/copy.json" not in english_names
+    assert "copy/zh.json" not in english_names
+    assert "copy/ja.json" not in english_names
+    assert "audio/zh.wav" not in english_names
+    assert "audio/ja.wav" not in english_names
+    assert english_manifest["languages"] == ["en"]
+    assert set(english_manifest["artifacts"]["multilingual_copy"]["copy"]) == {"en"}
+    assert set(english_manifest["artifacts"]["media_production"]["audio"]) == {"en"}
+
+
+@pytest.mark.asyncio
+async def test_single_non_english_language_campaign_completes_without_english_copy(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/campaigns",
+            files={"product_image": ("product.png", PNG_1X1, "image/png")},
+            data={
+                "name": "中文活动",
+                "description": "一款适合旅行使用的便携式智能咖啡机。",
+                "languages": "zh",
+            },
+        )
+        assert created.status_code == 201
+        campaign = await wait_for_terminal(client, created.json()["id"])
+        exported = await client.get(
+            f"/api/v1/campaigns/{created.json()['id']}/export"
+        )
+
+    assert campaign["status"] == "completed"
+    assert set(campaign["artifacts"]["multilingual_copy"]["copy"]) == {"zh"}
+    assert set(campaign["artifacts"]["media_production"]["audio"]) == {"zh"}
+    assert campaign["artifacts"]["visual_design"]["overlay_text"] == "让好产品轻松走向全球"
+    with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
+        names = set(archive.namelist())
+    assert "zh/" in names
+    assert not {"en/", "ja/", "copy/en.json", "copy/ja.json"} & names
+
+
+@pytest.mark.asyncio
+async def test_all_export_uses_only_languages_requested_by_campaign(tmp_path: Path) -> None:
+    app = make_app(tmp_path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/campaigns",
+            files={"product_image": ("product.png", PNG_1X1, "image/png")},
+            data={
+                "description": "A compact smart travel charger for global shoppers.",
+                "languages": "en",
+            },
+        )
+        campaign_id = created.json()["id"]
+        await wait_for_terminal(client, campaign_id)
+        export = await client.get(f"/api/v1/campaigns/{campaign_id}/export")
+        unsupported = await client.get(f"/api/v1/campaigns/{campaign_id}/export?language=ja")
+
+    with zipfile.ZipFile(io.BytesIO(export.content)) as archive:
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("manifest.json"))
+    assert manifest["languages"] == ["en"]
+    assert "en/copy.json" in names
+    assert "zh/" not in names
+    assert "ja/" not in names
+    assert unsupported.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -280,6 +498,157 @@ async def test_quality_packaging_retries_low_similarity_tts_once(tmp_path: Path)
     assert zh_audio["audio_path"].endswith("voice_zh_retry.wav")
     assert zh_qc["retries"] == 1
     assert zh_qc["passed"] is True
+
+
+@pytest.mark.asyncio
+async def test_campaign_asset_endpoint_returns_owned_artifacts(tmp_path: Path) -> None:
+    app = make_app(tmp_path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/campaigns",
+            files={"product_image": ("product.png", PNG_1X1, "image/png")},
+            data={"description": "A compact smart travel charger for global shoppers."},
+        )
+        campaign_id = created.json()["id"]
+        await wait_for_terminal(client, campaign_id)
+        source = await client.get(f"/api/v1/campaigns/{campaign_id}/assets/source")
+        poster = await client.get(f"/api/v1/campaigns/{campaign_id}/assets/poster")
+        video = await client.get(f"/api/v1/campaigns/{campaign_id}/assets/video")
+        audio = await client.get(f"/api/v1/campaigns/{campaign_id}/assets/audio-en")
+        qc = await client.get(f"/api/v1/campaigns/{campaign_id}/assets/qc")
+        missing = await client.get(f"/api/v1/campaigns/{campaign_id}/assets/audio-fr")
+
+    assert source.status_code == 200
+    assert poster.status_code == 200
+    assert video.status_code == 200
+    assert audio.status_code == 200
+    assert qc.status_code == 200
+    assert "source-product-image.png" in source.headers["content-disposition"]
+    assert "poster.png" in poster.headers["content-disposition"]
+    assert "campaign-video.mp4" in video.headers["content-disposition"]
+    assert "audio-en.wav" in audio.headers["content-disposition"]
+    assert missing.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_multilingual_copy_script_mismatch_retries_once(tmp_path: Path) -> None:
+    class EnglishFirstHooks(MockModelHooks):
+        def __init__(self) -> None:
+            self.bad_copy_returned = False
+
+        async def llm(self, task: str, payload: dict) -> dict:
+            result = await super().llm(task, payload)
+            if task == StageName.multilingual_copy.value and not self.bad_copy_returned:
+                self.bad_copy_returned = True
+                result["copy"]["zh"] = {
+                    "headline": "English placeholder",
+                    "title": "English placeholder",
+                    "selling_points": ["Fast launch", "Practical value"],
+                    "detail": "This should not be accepted as Chinese localized copy.",
+                    "body": "This should not be accepted as Chinese localized copy.",
+                    "outreach_email": "This should not be accepted as Chinese localized copy.",
+                    "video_script": "This should not be accepted as Chinese localized copy.",
+                    "cta": "Learn more",
+                }
+            return result
+
+    app = make_app(tmp_path)
+    app.state.runner.model_manager = ModelManager(EnglishFirstHooks())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/campaigns",
+            files={"product_image": ("product.png", PNG_1X1, "image/png")},
+            data={"description": "A compact smart travel charger for global shoppers."},
+        )
+        campaign = await wait_for_terminal(client, created.json()["id"])
+
+    by_name = {stage["name"]: stage for stage in campaign["stages"]}
+    assert campaign["status"] == "completed"
+    assert by_name["multilingual_copy"]["status"] == "succeeded"
+    assert by_name["multilingual_copy"]["attempts"] == 2
+
+
+@pytest.mark.asyncio
+async def test_multilingual_copy_script_mismatch_error_names_language(tmp_path: Path) -> None:
+    class BadEnglishHooks(MockModelHooks):
+        async def llm(self, task: str, payload: dict) -> dict:
+            result = await super().llm(task, payload)
+            if task == StageName.multilingual_copy.value:
+                result["copy"]["en"] = {
+                    "headline": "立即了解",
+                    "title": "立即了解",
+                    "selling_points": ["立即了解", "本地信任"],
+                    "detail": "这是一段中文占位文案，不应该放在英文键下。",
+                    "body": "这是一段中文占位文案，不应该放在英文键下。",
+                    "outreach_email": "这是一段中文占位文案，不应该放在英文键下。",
+                    "video_script": "这是一段中文占位文案，不应该放在英文键下。",
+                    "cta": "立即了解",
+                }
+            return result
+
+    app = make_app(tmp_path)
+    app.state.runner.model_manager = ModelManager(BadEnglishHooks())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/campaigns",
+            files={"product_image": ("product.png", PNG_1X1, "image/png")},
+            data={"description": "A compact smart travel charger for global shoppers."},
+        )
+        campaign = await wait_for_terminal(client, created.json()["id"])
+
+    by_name = {stage["name"]: stage for stage in campaign["stages"]}
+    assert campaign["status"] == "partial"
+    assert by_name["multilingual_copy"]["status"] == "failed"
+    assert by_name["multilingual_copy"]["attempts"] == 2
+    assert "multilingual_copy.copy.en" in by_name["multilingual_copy"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_completed_stage_artifacts_are_visible_while_next_stage_runs(tmp_path: Path) -> None:
+    class BlockingImageHooks(MockModelHooks):
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def image(
+            self,
+            prompt: str,
+            source_image: Path,
+            output_path: Path,
+            overlay_text: str = "",
+        ) -> dict:
+            self.started.set()
+            await self.release.wait()
+            return await super().image(prompt, source_image, output_path, overlay_text)
+
+    app = make_app(tmp_path)
+    hooks = BlockingImageHooks()
+    app.state.runner.model_manager = ModelManager(hooks)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/campaigns",
+            files={"product_image": ("product.png", PNG_1X1, "image/png")},
+            data={"description": "A compact smart travel charger for global shoppers."},
+        )
+        campaign_id = created.json()["id"]
+        await asyncio.wait_for(hooks.started.wait(), timeout=1)
+        running = (await client.get(f"/api/v1/campaigns/{campaign_id}")).json()
+        hooks.release.set()
+        completed = await wait_for_terminal(client, campaign_id)
+
+    stage_status = {stage["name"]: stage["status"] for stage in running["stages"]}
+    assert running["status"] == "running"
+    assert stage_status["market_positioning"] == "succeeded"
+    assert stage_status["buyer_persona"] == "succeeded"
+    assert stage_status["multilingual_copy"] == "succeeded"
+    assert stage_status["visual_design"] == "running"
+    assert {
+        "market_positioning",
+        "buyer_persona",
+        "multilingual_copy",
+    } <= set(running["artifacts"])
+    assert "visual_design" not in running["artifacts"]
+    assert completed["status"] == "completed"
 
 
 @pytest.mark.asyncio

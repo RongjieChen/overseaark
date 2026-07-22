@@ -7,11 +7,11 @@ import os
 import re
 import shutil
 import signal
-import zipfile
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .adapters import DEFAULT_TTS_SPEAKERS, ModelManager
+from .exporting import build_campaign_export_zip
 from .models import CampaignStatus, STAGE_ORDER, StageName, StageStatus
 from .store import Store
 
@@ -42,6 +42,7 @@ class CampaignRunner:
         for stage in STAGE_ORDER[STAGE_ORDER.index(from_stage) :]:
             if self._is_cancelled(campaign_id):
                 self._skip_remaining(campaign_id, stage)
+                await self._prepare_idle(campaign_id)
                 return
 
             self.store.set_campaign_status(campaign_id, CampaignStatus.running, current_stage=stage)
@@ -50,12 +51,14 @@ class CampaignRunner:
                 ok, output, error = await self._run_stage_with_retry(campaign_id, stage, context)
             except CampaignCancelled:
                 self._skip_remaining(campaign_id, stage)
+                await self._prepare_idle(campaign_id)
                 return
             if not ok:
                 if output:
                     artifacts[stage.value] = output
                     context["artifacts"] = artifacts
                 self._finish_after_failure(campaign_id, stage, artifacts, error)
+                await self._prepare_idle(campaign_id)
                 return
             artifacts[stage.value] = output
             context["artifacts"] = artifacts
@@ -69,6 +72,25 @@ class CampaignRunner:
 
         self.store.set_campaign_status(campaign_id, CampaignStatus.completed, artifacts=artifacts)
         self.store.add_event(campaign_id, "campaign.completed", "Campaign completed", payload=artifacts)
+        await self._prepare_idle(campaign_id)
+
+    async def _prepare_idle(self, campaign_id: str) -> None:
+        try:
+            status = await self.model_manager.prepare_idle(reason=f"campaign:{campaign_id}")
+        except Exception as exc:  # noqa: BLE001 - prewarm failure must not overwrite campaign output.
+            self.store.add_event(
+                campaign_id,
+                "models.prewarm_failed",
+                f"Model prewarm failed after campaign completion: {exc}",
+                payload={"error": str(exc)},
+            )
+            return
+        self.store.add_event(
+            campaign_id,
+            "models.prewarmed",
+            "Resident workers and the next-campaign LLM are ready",
+            payload=status,
+        )
 
     async def _run_stage_with_retry(
         self,
@@ -161,6 +183,7 @@ class CampaignRunner:
                     raise ValueError(
                         f"multilingual_copy.copy.{language} missing keys: {', '.join(missing)}"
                     )
+                _validate_localized_script(language, localized)
         elif stage == StageName.visual_design:
             _require_file_in_dir(output, stage, "image_path", package_dir)
         elif stage == StageName.media_production:
@@ -226,12 +249,14 @@ class CampaignRunner:
         campaign = context["campaign"]
         output_path = self.artifacts_dir / campaign.id / "visual_design.png"
         copy = context["artifacts"][StageName.multilingual_copy.value]["copy"]
-        prompt = f"Cross-border ad visual for {copy['en']['headline']}"
+        design_language = "en" if "en" in copy else campaign.languages[0]
+        headline = copy[design_language]["headline"]
+        prompt = f"Cross-border ad visual for {headline}"
         return await self.model_manager.image(
             prompt,
             Path(campaign.product_image_path),
             output_path,
-            copy["en"]["headline"],
+            headline,
         )
 
     async def _media_production(self, context: dict[str, Any]) -> dict[str, Any]:
@@ -334,36 +359,7 @@ class CampaignRunner:
             **context["artifacts"],
             StageName.quality_packaging.value: packaging_output,
         }
-        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.write(manifest_path, "manifest.json")
-            archive.write(qc_report_path, "qc_report.json")
-            source_image = Path(campaign.product_image_path)
-            archive.write(source_image, "source_product_image" + source_image.suffix)
-            archive.write(source_image, "source_image" + source_image.suffix)
-            for stage, payload in stage_payloads.items():
-                archive.writestr(f"stages/{stage}.json", json.dumps(payload, indent=2))
-            copy = context["artifacts"][StageName.multilingual_copy.value]["copy"]
-            for language in campaign.languages:
-                archive.writestr(f"copy/{language}.json", json.dumps(copy[language], indent=2))
-            visual = _resolve_file_in_dir(
-                context["artifacts"][StageName.visual_design.value]["image_path"],
-                package_dir,
-                StageName.visual_design,
-                "image_path",
-            )
-            archive.write(visual, visual.name)
-            archive.write(visual, "poster.png")
-            video = _resolve_file_in_dir(
-                media["video"]["video_path"], package_dir, StageName.media_production, "video_path"
-            )
-            archive.write(video, "campaign_video.mp4")
-            archive.write(video, "video.mp4")
-            for language, item in media["audio"].items():
-                audio_path = _resolve_file_in_dir(
-                    item["audio_path"], package_dir, StageName.media_production, "audio_path"
-                )
-                archive.write(audio_path, f"voice_{language}.wav")
-                archive.write(audio_path, f"audio/{language}.wav")
+        build_campaign_export_zip(campaign, self.artifacts_dir, artifacts=stage_payloads)
         return packaging_output
 
     async def _qc_audio(
@@ -483,6 +479,44 @@ def _require_file_in_dir(
     directory: Path,
 ) -> None:
     _resolve_file_in_dir(output.get(key), directory, stage, key)
+
+
+def _validate_localized_script(language: str, localized: dict[str, Any]) -> None:
+    text = _localized_text(localized)
+    cjk_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+    kana_count = len(re.findall(r"[\u3040-\u30ff]", text))
+    latin_count = len(re.findall(r"[A-Za-z]", text))
+    if language == "zh" and (cjk_count < 12 or cjk_count * 2 < latin_count):
+        raise ValueError(f"multilingual_copy.copy.{language} lacks sufficient CJK text")
+    if language == "ja" and (
+        kana_count < 8 or (kana_count + cjk_count) * 2 < latin_count
+    ):
+        raise ValueError(f"multilingual_copy.copy.{language} lacks Japanese script")
+    if language == "en":
+        if latin_count < 20:
+            raise ValueError(f"multilingual_copy.copy.{language} lacks sufficient Latin text")
+        if cjk_count * 5 > latin_count:
+            raise ValueError(f"multilingual_copy.copy.{language} is CJK-dominated")
+
+
+def _localized_text(localized: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in (
+        "title",
+        "headline",
+        "selling_points",
+        "detail",
+        "body",
+        "outreach_email",
+        "video_script",
+        "cta",
+    ):
+        value = localized.get(key)
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, list):
+            parts.extend(item for item in value if isinstance(item, str))
+    return " ".join(parts)
 
 
 def _resolve_file_in_dir(value: Any, directory: Path, stage: StageName, key: str) -> Path:

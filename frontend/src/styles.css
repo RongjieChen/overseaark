@@ -401,7 +401,7 @@ button:focus-visible {
 
 .actions.split {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .primary {
@@ -594,6 +594,37 @@ button:focus-visible {
   gap: 12px;
 }
 
+.stage-artifact-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.stage-artifact-group {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #d8e1ea;
+  padding-top: 14px;
+}
+
+.stage-artifact-group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.stage-artifact-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stage-artifact-heading span {
+  color: #657489;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .artifact {
   border: 1px solid #d8e1ea;
   border-radius: 8px;
@@ -622,6 +653,62 @@ button:focus-visible {
   color: #263245;
   font-family: inherit;
   line-height: 1.52;
+}
+
+.artifact-media,
+.artifact audio,
+.artifact video {
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+}
+
+.artifact-media {
+  max-height: 360px;
+  object-fit: contain;
+  border: 1px solid #d8e1ea;
+  background: #f4f7fa;
+}
+
+.artifact audio,
+.artifact video {
+  margin-bottom: 10px;
+}
+
+.structured-artifact {
+  color: #263245;
+  line-height: 1.5;
+}
+
+.structured-artifact dl,
+.structured-artifact ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.structured-artifact div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.35fr) minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+}
+
+.structured-artifact dt {
+  color: #667589;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.structured-artifact dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.structured-artifact li {
+  margin-left: 18px;
 }
 
 .empty {
@@ -681,13 +768,18 @@ button:focus-visible {
   }
 
   .language-grid,
-  .actions.split,
   .meta-grid {
     grid-template-columns: 1fr;
   }
 
+  .actions.split {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .section-heading,
-  .artifact div {
+  .artifact div,
+  .stage-artifact-heading,
+  .structured-artifact div {
     display: grid;
   }
 

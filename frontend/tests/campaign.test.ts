@@ -3,9 +3,11 @@ import test from "node:test";
 import {
   createEmptyCampaign,
   createConnectionFailureCampaign,
+  artifactsForStage,
   mergeCampaignEvent,
   normalizeCampaignStatus,
   normalizeStageState,
+  selectLocalizedArtifacts,
   selectCampaignId,
   validateDescription,
   validateProductImage,
@@ -29,6 +31,8 @@ test("merges stage, artifact, warning, and sequence updates", () => {
     artifact: {
       id: "a1",
       title: "English Launch Copy",
+      stage: "multilingual_copy",
+      key: "copy",
       language: "en",
       kind: "copy",
       quality: "final",
@@ -47,6 +51,99 @@ test("merges stage, artifact, warning, and sequence updates", () => {
   });
 
   assert.deepEqual(warned.warnings, ["Model returned partial output."]);
+});
+
+test("maps stage lifecycle event types without failing the whole campaign", () => {
+  const running = mergeCampaignEvent(createEmptyCampaign(), {
+    sequence: 1,
+    type: "stage.started",
+    status: "running",
+    stage: "buyer_persona",
+  });
+  const completed = mergeCampaignEvent(running, {
+    sequence: 2,
+    type: "stage.succeeded",
+    status: "running",
+    stage: "buyer_persona",
+  });
+  const failed = mergeCampaignEvent(completed, {
+    sequence: 3,
+    type: "stage.failed",
+    status: "running",
+    stage: "visual_design",
+    message: "image model error",
+  });
+  const skipped = mergeCampaignEvent(failed, {
+    sequence: 4,
+    type: "stage.skipped",
+    status: "running",
+    stage: "media_production",
+  });
+
+  assert.equal(running.stages.find((stage) => stage.key === "buyer_persona")?.state, "running");
+  assert.equal(completed.stages.find((stage) => stage.key === "buyer_persona")?.state, "complete");
+  assert.equal(failed.stages.find((stage) => stage.key === "visual_design")?.state, "failed");
+  assert.equal(failed.status, "running");
+  assert.equal(skipped.stages.find((stage) => stage.key === "media_production")?.state, "skipped");
+});
+
+test("ignores duplicate and out-of-order event sequences", () => {
+  const current = mergeCampaignEvent(createEmptyCampaign(), {
+    sequence: 10,
+    type: "stage.succeeded",
+    stage: "market_positioning",
+  });
+  const duplicate = mergeCampaignEvent(current, {
+    sequence: 10,
+    type: "stage.failed",
+    stage: "market_positioning",
+    message: "stale duplicate",
+  });
+  const outOfOrder = mergeCampaignEvent(current, {
+    sequence: 9,
+    type: "stage.started",
+    stage: "market_positioning",
+  });
+
+  assert.strictEqual(duplicate, current);
+  assert.strictEqual(outOfOrder, current);
+  assert.equal(current.stages.find((stage) => stage.key === "market_positioning")?.state, "complete");
+});
+
+test("selects localized copy and matching audio without shared artifacts", () => {
+  const artifacts = [
+    {
+      id: "copy-en",
+      title: "Copy EN",
+      stage: "multilingual_copy" as const,
+      key: "copy",
+      language: "en" as const,
+      kind: "copy" as const,
+      content: "English copy",
+    },
+    {
+      id: "audio-en",
+      title: "Audio EN",
+      stage: "media_production" as const,
+      key: "audio",
+      language: "en" as const,
+      kind: "audio" as const,
+      content: "voice_en.wav",
+      assetKey: "audio-en" as const,
+    },
+    {
+      id: "poster",
+      title: "Poster",
+      stage: "visual_design" as const,
+      key: "poster",
+      kind: "poster" as const,
+      content: "poster.png",
+      assetKey: "poster" as const,
+    },
+  ];
+
+  assert.deepEqual(selectLocalizedArtifacts(artifacts, "en").map((artifact) => artifact.id), ["copy-en", "audio-en"]);
+  assert.deepEqual(artifactsForStage(artifacts, "visual_design").map((artifact) => artifact.id), ["poster"]);
 });
 
 test("creates connection failure campaign without fake artifacts", () => {

@@ -126,6 +126,9 @@ def test_native_vllm_runtime_is_pinned_cuda_accelerated_and_localhost_only() -> 
     assert "VLLM_NO_USAGE_STATS=1" in runtime
     assert "start_vllm" in lifecycle
     assert "OVERSEAARK_LLM_BASE_URL" in common
+    assert "OVERSEAARK_RESIDENT_ADAPTERS" in common
+    assert "OVERSEAARK_KEEP_VLLM_RESIDENT" in common
+    assert 'OVERSEAARK_RESIDENT_ADAPTERS:-asr,tts' in common
     assert "http://127.0.0.1:$OVERSEAARK_VLLM_PORT" in common
     assert "OVERSEAARK_VLLM_STARTUP_TIMEOUT" in common
     assert "OVERSEAARK_VLLM_STARTUP_TIMEOUT must be a positive integer" in lifecycle
@@ -177,6 +180,7 @@ def test_asr_adapter_uses_generic_local_nemo_restore_and_language_tags() -> None
     ).read_text(encoding="utf-8")
 
     assert "nemo_asr.models.ASRModel.restore_from" in adapter
+    assert "run_resident(build_worker)" in adapter
     assert "RNNTPromptTranscribeConfig" in adapter
     assert "use_lhotse=False" in adapter
     assert "override_config=transcribe_config" in adapter
@@ -207,6 +211,7 @@ def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
     )
 
     assert 'config.codecmodel_path = str(codec_path)' in adapter
+    assert "run_resident(build_worker)" in adapter
     assert 'models_root() / "google/byt5-small"' in adapter
     assert 'tokenizer_config.pretrained_model = str(tokenizer_path)' in adapter
     assert 'tokenizers.get("japanese_phoneme")' in adapter
@@ -232,6 +237,7 @@ def test_magpie_uses_a_locked_local_nanocodec_dependency() -> None:
 def test_step1x_reserves_typography_for_deterministic_pillow_layout() -> None:
     adapter = _read("scripts/adapters/image_step1x.py")
 
+    assert "run_resident(build_worker)" in adapter
     assert "Do not render text, letters, logos, captions, or watermarks" in adapter
     assert "typography is added after generation" in adapter
     assert "prompt=generation_prompt" in adapter

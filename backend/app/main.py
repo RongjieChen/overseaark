@@ -4,11 +4,10 @@ import asyncio
 import json
 import struct
 import uuid
-import zipfile
 import zlib
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -21,6 +20,12 @@ from .adapters import (
     NEMOTRON_ASR_MODEL,
     VIDEO_MODEL,
     build_model_manager,
+)
+from .exporting import (
+    asset_file,
+    build_campaign_export_zip,
+    export_filename,
+    validate_export_language,
 )
 from .models import (
     DEFAULT_LANGUAGES,
@@ -82,10 +87,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "asr": app_settings.asr_command,
             "tts": app_settings.tts_command,
         },
+        resident_adapters=app_settings.resident_adapters,
+        keep_vllm_resident=app_settings.keep_vllm_resident,
     )
     runner = CampaignRunner(store, model_manager, app_settings.artifacts_dir)
     tasks: set[asyncio.Task[None]] = set()
     campaign_tasks: dict[str, asyncio.Task[None]] = {}
+
+    def model_warmup_status() -> dict[str, Any]:
+        status_getter = getattr(model_manager, "preparation_status", None)
+        if status_getter is not None:
+            return dict(status_getter())
+        return {
+            "status": "ready" if app_settings.adapter_mode == "mock" else "pending",
+            "reason": "status unavailable",
+            "result": {},
+            "error": None,
+        }
+
+    async def warm_models(reason: str) -> None:
+        try:
+            await model_manager.prepare_idle(reason=reason)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - the API must remain available in degraded mode.
+            return
+
+    def schedule_warmup(reason: str) -> None:
+        task = asyncio.create_task(warm_models(reason))
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -121,6 +152,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             )
             schedule(campaign.id, from_stage=first_incomplete)
+        # GPU model loading is deliberately asynchronous: health and the UI
+        # become available immediately, while /models exposes warmup progress.
+        # ModelManager serializes a campaign with this task if a user submits
+        # work before warmup finishes.
+        schedule_warmup("startup")
         yield
         for task in tasks:
             if not task.done():
@@ -133,8 +169,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = app_settings
     app.state.store = store
     app.state.runner = runner
+    app.state.model_manager = model_manager
     app.state.tasks = tasks
     app.state.campaign_tasks = campaign_tasks
+    app.state.model_warmup_status = model_warmup_status
 
     def schedule(campaign_id: str, from_stage: StageName = StageName.market_positioning) -> None:
         task = asyncio.create_task(runner.run(campaign_id, from_stage=from_stage))
@@ -150,7 +188,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
-        return HealthResponse(status="ok", storage_path=str(app_settings.data_dir))
+        warmup = model_warmup_status()
+        return HealthResponse(
+            status="ok",
+            storage_path=str(app_settings.data_dir),
+            model_status=str(warmup["status"]),
+        )
 
     @app.get("/health", response_model=HealthResponse)
     async def legacy_health() -> HealthResponse:
@@ -158,6 +201,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/models", response_model=ModelInfo)
     async def models() -> ModelInfo:
+        warmup = model_warmup_status()
+        if warmup["status"] == "warming":
+            residency: dict[str, Any] = {
+                "mode": app_settings.adapter_mode,
+                "resident_adapters": sorted(
+                    item.strip()
+                    for item in app_settings.resident_adapters.split(",")
+                    if item.strip()
+                ),
+                "workers": {},
+            }
+        else:
+            try:
+                residency = await asyncio.wait_for(model_manager.worker_status(), timeout=0.25)
+            except TimeoutError:
+                residency = {
+                    "mode": app_settings.adapter_mode,
+                    "resident_adapters": [],
+                    "workers": {},
+                }
+        residency.update(
+            {
+                "strategy": "safe-warm",
+                "llm_policy": (
+                    "resident" if residency.get("keep_vllm_resident") else "prewarmed-between-campaigns"
+                ),
+                "video_policy": "on-demand-cosmos-cli",
+                "warmup": warmup,
+            }
+        )
         return ModelInfo(
             llm=LLM_MODEL,
             image=IMAGE_MODEL,
@@ -166,6 +239,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tts=MAGPIE_TTS_MODEL,
             mode=app_settings.adapter_mode,
             offline=app_settings.offline_only,
+            all_models_resident=False,
+            residency=residency,
         )
 
     @app.post("/api/v1/transcriptions", response_model=TranscriptionResponse)
@@ -247,21 +322,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         task = campaign_tasks.get(campaign_id)
         if task is not None and not task.done():
             task.cancel()
+            schedule_warmup("campaign-cancelled")
         return store.get_campaign(campaign_id)
 
-    @app.get("/api/v1/campaigns/{campaign_id}/export")
-    async def export_campaign(campaign_id: str) -> Response:
+    @app.get("/api/v1/campaigns/{campaign_id}/assets/{asset_key}")
+    async def get_campaign_asset(campaign_id: str, asset_key: str) -> FileResponse:
         campaign = _get_campaign_or_404(store, campaign_id)
-        package = campaign.artifacts.get(StageName.quality_packaging.value, {})
-        zip_path = package.get("zip_path")
-        if zip_path and Path(zip_path).is_file():
-            return FileResponse(zip_path, media_type="application/zip", filename="overseaark-export.zip")
-        if campaign.status == CampaignStatus.partial and campaign.artifacts:
-            partial_zip = _build_partial_export(campaign, app_settings.artifacts_dir)
+        path, filename = asset_file(campaign, app_settings.artifacts_dir, asset_key)
+        return FileResponse(path, filename=filename, content_disposition_type="inline")
+
+    @app.get("/api/v1/campaigns/{campaign_id}/export")
+    async def export_campaign(campaign_id: str, language: str | None = None) -> Response:
+        language = validate_export_language(language)
+        campaign = _get_campaign_or_404(store, campaign_id)
+        if campaign.status in {CampaignStatus.completed, CampaignStatus.partial} and campaign.artifacts:
+            export_path = build_campaign_export_zip(campaign, app_settings.artifacts_dir, language)
             return FileResponse(
-                partial_zip,
+                export_path,
                 media_type="application/zip",
-                filename="overseaark-partial-export.zip",
+                filename=export_filename(campaign, language),
             )
         raise HTTPException(status_code=409, detail="Campaign ZIP is not available yet")
 
@@ -568,54 +647,5 @@ def _mount_frontend(app: FastAPI, configured_dist_dir: Path | None = None) -> No
         if index.is_file():
             return FileResponse(index)
         raise HTTPException(status_code=404, detail="Frontend not found")
-
-
-def _build_partial_export(campaign: CampaignDetail, artifacts_dir: Path) -> Path:
-    package_dir = artifacts_dir / campaign.id
-    package_dir.mkdir(parents=True, exist_ok=True)
-    path = package_dir / "partial-export.zip"
-    qc_report = {
-        "passed": False,
-        "quality": "partial",
-        "campaign_status": campaign.status.value,
-        "error": campaign.error,
-        "offline_inference": True,
-    }
-    manifest = {
-        "campaign_id": campaign.id,
-        "name": campaign.name,
-        "status": campaign.status.value,
-        "error": campaign.error,
-        "languages": campaign.languages,
-        "artifacts": campaign.artifacts,
-        "stages": [stage.model_dump(mode="json") for stage in campaign.stages],
-        "quality": "partial",
-    }
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-        archive.writestr("qc_report.json", json.dumps(qc_report, ensure_ascii=False, indent=2))
-        source = Path(campaign.product_image_path)
-        if source.is_file():
-            archive.write(source, f"source_image{source.suffix}")
-        for stage_name, output in campaign.artifacts.items():
-            archive.writestr(f"stages/{stage_name}.json", json.dumps(output, ensure_ascii=False, indent=2))
-        copy = campaign.artifacts.get(StageName.multilingual_copy.value, {}).get("copy", {})
-        for language, localized in copy.items():
-            archive.writestr(
-                f"copy/{language}.json", json.dumps(localized, ensure_ascii=False, indent=2)
-            )
-        visual_path = campaign.artifacts.get(StageName.visual_design.value, {}).get("image_path")
-        if visual_path and Path(visual_path).is_file():
-            archive.write(visual_path, "poster.png")
-        media = campaign.artifacts.get(StageName.media_production.value, {})
-        for language, item in media.get("audio", {}).items():
-            audio_path = item.get("audio_path")
-            if audio_path and Path(audio_path).is_file():
-                archive.write(audio_path, f"audio/{language}.wav")
-        video_path = media.get("video", {}).get("video_path")
-        if video_path and Path(video_path).is_file():
-            archive.write(video_path, "video.mp4")
-    return path
-
 
 app = create_app()

@@ -60,7 +60,7 @@ test("falls back to Chinese when browser storage is unavailable", () => {
 });
 
 test("translates primary stage, status, language, artifact, and validation labels", () => {
-  assert.equal(messages["zh-CN"].appTitle, "DGX Spark：一支不下班的本地多模态外贸营销团队");
+  assert.equal(messages["zh-CN"].appTitle, "DGX Spark一支不下班的本地多模态外贸营销团队");
   assert.equal(messages.en.appTitle, "DGX Spark: Your always-on local multimodal export marketing team");
   assert.equal(messages["zh-CN"].fillDemo, "一键填入示例");
   assert.equal(messages.en.fillDemo, "Fill demo");
@@ -75,10 +75,14 @@ test("translates primary stage, status, language, artifact, and validation label
   assert.equal(getLanguageLabels("zh-CN").en, "英语");
   assert.equal(getLanguageLabels("en").en, "English");
   assert.equal(getArtifactKindText("zh-CN", "image_prompt"), "视觉提示词");
+  assert.equal(getArtifactKindText("zh-CN", "video"), "视频");
+  assert.equal(getArtifactKindText("en", "poster"), "Poster");
   assert.equal(getQualityText("zh-CN", "degraded"), "降级产物");
   const generatedArtifact = {
     id: "copy-zh",
     title: "Multilingual Copy copy ZH",
+    stage: "multilingual_copy" as const,
+    key: "copy",
     language: "zh" as const,
     kind: "copy" as const,
     content: "中文文案",
@@ -87,6 +91,8 @@ test("translates primary stage, status, language, artifact, and validation label
   assert.equal(getArtifactTitle("zh-CN", generatedArtifact), "多语文案 · 文案（中文）");
   assert.equal(getArtifactTitle("en", generatedArtifact), "Multilingual Copy · Copy (Chinese)");
   assert.equal(messages["zh-CN"].emptyArtifacts("中文"), "还没有 中文 产物。");
+  assert.equal(messages["zh-CN"].stageArtifacts, "阶段过程产物");
+  assert.equal(messages.en.exportCurrent, "Export current language");
   assert.equal(messages["zh-CN"].defaultTargetMarkets, "美国,日本,中国大陆");
   assert.equal(messages.en.defaultTargetMarkets, "United States, Japan, Mainland China");
   assert.equal(validateDescription("abcd", validationMessages["zh-CN"]), "产品描述至少需要 5 个字符。");

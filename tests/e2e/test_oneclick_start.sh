@@ -3,7 +3,17 @@ set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tmp_dir="$(mktemp -d)"
-trap 'rm -rf "$tmp_dir"' EXIT
+cleanup_pids=()
+cleanup() {
+  local cleanup_pid
+  for cleanup_pid in "${cleanup_pids[@]}"; do
+    if [[ "$cleanup_pid" =~ ^[1-9][0-9]*$ ]]; then
+      kill -KILL "$cleanup_pid" >/dev/null 2>&1 || true
+    fi
+  done
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
 
 export OVERSEAARK_DATA_DIR="$tmp_dir/data"
 export OVERSEAARK_MODELS_DIR="$tmp_dir/models"
@@ -289,6 +299,181 @@ native_command="$(vllm_command)"
 [[ "$native_command" == *"TRANSFORMERS_OFFLINE=1"* ]]
 [[ "$native_command" != *"docker"* ]]
 [[ "$native_command" != *"llama"* ]]
+
+# Dynamic lifecycle regression: the service launches a resident-style worker
+# with start_new_session=True. stop_one must terminate both the parent and that
+# separately-grouped child while leaving an unrelated process in the caller's
+# group untouched. Linux additionally verifies the persisted setsid PGID.
+tree_fixture="$tmp_dir/process-tree.py"
+tree_child_pid_file="$tmp_dir/process-tree-child.pid"
+cat > "$tree_fixture" <<'PY'
+import pathlib
+import signal
+import subprocess
+import sys
+import time
+
+
+child = subprocess.Popen(
+    [
+        sys.executable,
+        "-c",
+        "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)",
+    ],
+    start_new_session=True,
+)
+pathlib.Path(sys.argv[1]).write_text(str(child.pid), encoding="utf-8")
+
+
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+while True:
+    time.sleep(1)
+PY
+
+sleep 60 &
+unrelated_pid="$!"
+cleanup_pids+=("$unrelated_pid")
+printf -v tree_command '%q %q %q' "$(command -v python3)" "$tree_fixture" "$tree_child_pid_file"
+start_one process-tree "$tree_command" "$tmp_dir"
+tree_parent_pid="$(read_pid process-tree)"
+cleanup_pids+=("$tree_parent_pid")
+tree_parent_identity="$(read_pid_identity process-tree)"
+[[ -n "$tree_parent_identity" ]]
+process_identity_matches "$tree_parent_pid" "$tree_parent_identity"
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  [[ -s "$tree_child_pid_file" ]] && break
+  sleep 0.05
+done
+[[ -s "$tree_child_pid_file" ]]
+tree_child_pid="$(sed -n '1p' "$tree_child_pid_file")"
+cleanup_pids+=("$tree_child_pid")
+pid_alive "$tree_parent_pid"
+pid_alive "$tree_child_pid"
+[[ "$(process_pgid "$tree_child_pid")" == "$tree_child_pid" ]]
+
+if [[ "$(uname -s)" == "Linux" ]] && command -v setsid >/dev/null 2>&1; then
+  tree_parent_pgid="$(read_pgid process-tree)"
+  [[ "$tree_parent_pgid" == "$tree_parent_pid" ]]
+  [[ "$(process_pgid "$tree_parent_pid")" == "$tree_parent_pgid" ]]
+  [[ "$tree_parent_pgid" != "$(process_pgid "$$")" ]]
+else
+  [[ ! -e "$OVERSEAARK_PID_DIR/process-tree.pgid" ]]
+fi
+
+stop_one process-tree
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if ! pid_alive "$tree_parent_pid" && ! pid_alive "$tree_child_pid"; then
+    break
+  fi
+  sleep 0.05
+done
+if pid_alive "$tree_parent_pid" || pid_alive "$tree_child_pid"; then
+  echo "lifecycle stop left a parent or independently-sessioned child alive" >&2
+  exit 1
+fi
+cleanup_pids=("$unrelated_pid")
+pid_alive "$unrelated_pid"
+[[ ! -e "$OVERSEAARK_PID_DIR/process-tree.pid" ]]
+[[ ! -e "$OVERSEAARK_PID_DIR/process-tree.pgid" ]]
+kill -TERM "$unrelated_pid"
+wait "$unrelated_pid" 2>/dev/null || true
+cleanup_pids=()
+
+# A stale PID that has been reused as another process-group leader must never
+# widen into a signal for that unrelated group. The persisted start identity
+# is intentionally corrupted to exercise the fail-closed path.
+stale_pid_file="$tmp_dir/stale-group.pid"
+python3 - "$stale_pid_file" <<'PY'
+import pathlib
+import subprocess
+import sys
+
+
+child = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(60)"],
+    start_new_session=True,
+)
+pathlib.Path(sys.argv[1]).write_text(str(child.pid), encoding="utf-8")
+PY
+stale_pid="$(sed -n '1p' "$stale_pid_file")"
+cleanup_pids+=("$stale_pid")
+printf '%s\n%s\n' "$stale_pid" 'stale-process-identity' > "$OVERSEAARK_PID_DIR/stale.pid"
+write_pgid stale "$stale_pid"
+stop_one stale
+pid_alive "$stale_pid"
+[[ ! -e "$OVERSEAARK_PID_DIR/stale.pid" ]]
+[[ ! -e "$OVERSEAARK_PID_DIR/stale.pgid" ]]
+
+# A legacy/truncated one-line PID file is also unverified. start_one must fail
+# closed instead of reporting that this unrelated process is the service.
+printf '%s\n' "$stale_pid" > "$OVERSEAARK_PID_DIR/legacy.pid"
+if (start_one legacy 'true' "$tmp_dir") >/dev/null 2>&1; then
+  echo "start accepted a live PID without persisted process identity" >&2
+  exit 1
+fi
+pid_alive "$stale_pid"
+remove_process_state legacy
+
+kill -TERM -- "-$stale_pid"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  pid_alive "$stale_pid" || break
+  sleep 0.05
+done
+if pid_alive "$stale_pid"; then
+  echo "stale-state safety fixture did not exit during cleanup" >&2
+  exit 1
+fi
+cleanup_pids=()
+
+# If a recorded session leader dies before stop while a same-PGID child stays
+# alive, the group can no longer be identity-verified. Keep state and report a
+# recovery failure rather than deleting the only evidence and claiming success.
+dead_root_pid_file="$tmp_dir/dead-root.pid"
+dead_root_child_file="$tmp_dir/dead-root-child.pid"
+python3 - "$dead_root_pid_file" "$dead_root_child_file" <<'PY'
+import pathlib
+import subprocess
+import sys
+
+
+root_pid_path = pathlib.Path(sys.argv[1])
+child_pid_path = pathlib.Path(sys.argv[2])
+code = (
+    "import pathlib,subprocess,sys; "
+    "child=subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+    "pathlib.Path(sys.argv[1]).write_text(str(child.pid), encoding='utf-8')"
+)
+root = subprocess.Popen(
+    [sys.executable, "-c", code, str(child_pid_path)],
+    start_new_session=True,
+)
+root_pid_path.write_text(str(root.pid), encoding="utf-8")
+root.wait()
+PY
+dead_root_pid="$(sed -n '1p' "$dead_root_pid_file")"
+dead_root_child_pid="$(sed -n '1p' "$dead_root_child_file")"
+cleanup_pids+=("$dead_root_child_pid")
+[[ "$(process_pgid "$dead_root_child_pid")" == "$dead_root_pid" ]]
+printf '%s\n%s\n' "$dead_root_pid" 'dead-root-identity' > "$OVERSEAARK_PID_DIR/orphan.pid"
+write_pgid orphan "$dead_root_pid"
+if stop_one orphan >/dev/null 2>&1; then
+  echo "dead group leader with a live recorded process group was reported stopped" >&2
+  exit 1
+fi
+[[ -e "$OVERSEAARK_PID_DIR/orphan.pid" ]]
+[[ -e "$OVERSEAARK_PID_DIR/orphan.pgid" ]]
+process_group_alive "$dead_root_pid"
+kill -TERM -- "-$dead_root_pid"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  process_group_alive "$dead_root_pid" || break
+  sleep 0.05
+done
+if process_group_alive "$dead_root_pid"; then
+  echo "dead-root recovery fixture did not exit during cleanup" >&2
+  exit 1
+fi
+remove_process_state orphan
+cleanup_pids=()
 
 # Fault: malformed startup configuration must fail before any process action.
 if (OVERSEAARK_STARTUP_TIMEOUT=invalid; validate_startup_configuration) >/dev/null 2>&1; then

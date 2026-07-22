@@ -24,6 +24,8 @@ OVERSEAARK_PID_DIR=/home/Developer/overseaark-data/run
 OVERSEAARK_HOST=127.0.0.1
 OVERSEAARK_BACKEND_PORT=8000
 OVERSEAARK_ADAPTER_MODE=command
+OVERSEAARK_RESIDENT_ADAPTERS=asr,tts
+OVERSEAARK_KEEP_VLLM_RESIDENT=0
 OVERSEAARK_STEP1X_STEPS=6
 OVERSEAARK_COSMOS_STEPS=28
 OVERSEAARK_VLLM_ENV_DIR=/home/Developer/overseaark/.venv-vllm
@@ -68,9 +70,12 @@ Startup performs these checks and repairs:
 6. Verify required model directories, sizes, and SHA-256 hashes.
 7. Download only missing or invalid locked model files when `OVERSEAARK_AUTO_DOWNLOAD_MODELS=1`.
 8. Start local vLLM for Qwen3.6 in command mode on `127.0.0.1:8011`.
-9. Start FastAPI and wait for `/api/v1/health`.
+9. Start FastAPI and schedule the configured resident ASR/TTS plus next-campaign LLM warmup in the background.
+10. Wait for `/api/v1/health` before returning success.
 
 Repeat the same command after a network interruption. Completed downloads and valid locked files are reused.
+
+Startup waits for the native vLLM health check, then returns as soon as FastAPI is reachable. Resident ASR/TTS warmup continues in the background so a warmup failure cannot take down the UI or health endpoint. Check `/api/v1/health` (`model_status`) and `/api/v1/models` (`residency.warmup`) for `warming`, `ready`, or `degraded`; follow `./overseaark logs all` and `./overseaark logs llm` instead of starting a second copy.
 
 Strict startup:
 
@@ -172,16 +177,73 @@ OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./o
 
 `./overseaark llm stop` stops the native vLLM process on demand and releases the Qwen runtime before other heavy GPU adapters run. To force a clean vLLM reinstall, stop the service, remove `.venv-vllm`, then rerun `./overseaark bootstrap`.
 
+Inspect the effective warm policy and worker process ids through the API:
+
+```bash
+curl -sS http://127.0.0.1:8000/api/v1/models
+```
+
+The response intentionally reports `all_models_resident: false`. Under the default profile, `residency.resident_adapters` is `asr,tts`, worker entries expose readiness/PIDs, `llm_policy` is `prewarmed-between-campaigns`, and `video_policy` is `on-demand-cosmos-cli`.
+
 Current service layout:
 
 | Service | Bind | Notes |
 | --- | --- | --- |
 | FastAPI API + frontend | `127.0.0.1:8000` | `app.main:app`; mounts `runtime/frontend-dist`. |
-| Qwen3.6 native vLLM server | `127.0.0.1:8011` | Started on demand; API-key file stored under `OVERSEAARK_PID_DIR`. |
+| Qwen3.6 native vLLM server | `127.0.0.1:8011` | Prewarmed by lifecycle/backend, released before heavy non-LLM stages, and restarted when needed; API-key file under `OVERSEAARK_PID_DIR`. |
+| Nemotron ASR / Magpie TTS workers | no TCP bind | Long-lived backend child processes using request-id JSONL over stdio. |
 
 vLLM uses the official DGX Spark-oriented lifecycle parameters from `scripts/vllm_server.sh`: `--tensor-parallel-size 1`, `--kv-cache-dtype fp8`, `--attention-backend flashinfer`, `--moe-backend marlin`, `--gpu-memory-utilization 0.4`, `--max-model-len 262144`, `--max-num-seqs 4`, `--max-num-batched-tokens 8192`, chunked prefill, prefix caching, MTP speculative decoding, `--load-format fastsafetensors`, `--reasoning-parser qwen3`, and Qwen3 XML tool-call parsing.
 
 The first GB10 start also compiles FlashInfer SM121 kernels. `MAX_JOBS=1` and `CMAKE_BUILD_PARALLEL_LEVEL=1` deliberately serialize this JIT work so compiler processes do not contend with loaded weights in unified memory. The verified cold-cache start reached health in 526 seconds; once caches existed, a full model-hash verification plus restart reached health in 166 seconds.
+
+## Safe-warm Model Policy
+
+The supported default is:
+
+```bash
+OVERSEAARK_RESIDENT_ADAPTERS=asr,tts
+OVERSEAARK_KEEP_VLLM_RESIDENT=0
+```
+
+- Nemotron ASR and Magpie TTS load once and remain ready inside restartable resident workers.
+- vLLM is prewarmed at backend startup and after a campaign reaches a terminal state. It stays ready through LLM work and is released before Step1X/Cosmos or speech inference.
+- Step1X is on demand by default. Operators may test `OVERSEAARK_RESIDENT_ADAPTERS=asr,tts,image`, but this is opt-in and must be validated with unified-memory monitoring and repeated campaigns.
+- Cosmos3-Edge remains an on-demand Cosmos Framework CLI process; `video` is not accepted in `OVERSEAARK_RESIDENT_ADAPTERS`.
+
+Do not keep every model resident merely because DGX Spark reports about 119 GiB of unified memory. Required locked files total about 81.2 GB decimal (75.6 GiB), and files on disk are not the full runtime cost: vLLM KV cache, decoded model tensors, CUDA contexts, Step1X/Cosmos activations, VAE/video buffers, the OS, and filesystem cache need additional and sometimes overlapping space. The safe profile preserves OOM margin at model transitions; an all-resident configuration is unsupported.
+
+After changing the profile, restart and verify it:
+
+```bash
+./overseaark restart
+curl -sS http://127.0.0.1:8000/api/v1/models
+free -h
+nvidia-smi
+```
+
+## GPU and Unified-memory Monitoring
+
+Run monitoring commands in the DGX Spark SSH session while the browser campaign is active:
+
+```bash
+# Snapshot: GPU utilization, temperature, power, and active processes
+nvidia-smi
+
+# Continuous device metrics; Ctrl-C to stop
+nvidia-smi dmon -s pucvmet
+
+# Unified CPU/GPU memory headroom
+free -h
+```
+
+If the demo monitor is enabled, follow its persisted output with:
+
+```bash
+tail -f /home/Developer/overseaark-data/logs/gpu-dmon.log
+```
+
+The web workbench contains an expandable GPU command guide, but it does not stream privileged device metrics into the browser. Some DGX Spark per-process GPU-memory columns may show `N/A`; use `free -h` to judge total unified-memory pressure.
 
 ## SSH Tunnel
 
@@ -230,6 +292,28 @@ curl -sS http://127.0.0.1:8000/api/v1/transcriptions \
   -F 'language=auto'
 ```
 
+After capturing the returned campaign id, inspect persisted progress and artifacts:
+
+```bash
+curl -sS http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>
+curl -N http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/events
+curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/assets/poster
+curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/assets/audio-en
+curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/assets/video
+curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/assets/qc
+```
+
+Asset keys are restricted to `source`, `poster`, `video`, `qc`, `audio-zh`, `audio-en`, and `audio-ja`. A key returns 404 until the producing stage has stored the artifact.
+
+Download the complete multilingual ZIP or one requested language:
+
+```bash
+curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/export
+curl -OJ 'http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/export?language=en'
+```
+
+The complete archive has `shared/` and one folder per requested language. A single-language archive contains only that language's localized copy/audio and filtered metadata; a video is present only when its narration language matches the requested language.
+
 ## Command Adapter Payloads
 
 LLM:
@@ -272,6 +356,8 @@ OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./o
 OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark test
 ```
 
+The root test command covers backend tests, frontend type/build checks, lifecycle adversarial checks, backend smoke, and Mock HTTP E2E. The suite count is intentionally not frozen in this guide; use the totals printed by the current run.
+
 Backend direct:
 
 ```bash
@@ -300,6 +386,16 @@ Direct command-mode benchmarks:
 
 Reports are written under `OVERSEAARK_DATA_DIR/benchmarks/`.
 
+Browser acceptance after a deployed `start`:
+
+1. Open `http://127.0.0.1:8000`; confirm Chinese is the default UI, switch to English, refresh, and confirm the choice persists.
+2. Click **一键填入示例 / Fill demo** and verify the bundled image plus complete campaign form appear before submission.
+3. Create the campaign and confirm six-stage SSE progress continues across a refresh.
+4. Confirm completed-stage outputs appear in **阶段过程产物 / Stage artifacts** while a later stage is still running; verify poster/audio/video/QC controls when each becomes available.
+5. Switch the `zh`, `en`, and `ja` output tabs and verify copy/audio do not leak across languages.
+6. Download the complete ZIP and the current-language ZIP; inspect `shared/` plus language folders and validate that the scoped archive excludes other-language copy, audio, QC, and model-call metadata.
+7. During real DGX inference, watch `nvidia-smi dmon -s pucvmet` and `free -h`; after completion, check `/api/v1/models` for ready resident workers and scan logs for OOM, CUDA-context, or unexpected worker restarts.
+
 ## DGX E2E Evidence
 
 The historical DGX handoff included successful real E2E results on the previous LLM runtime:
@@ -327,6 +423,10 @@ Treat these as DGX E2E status notes, not a replacement for benchmark JSON under 
 | `Qwen3.6 NVFP4 is missing` | Required Qwen file missing from model root. | Run `./overseaark models sync` or `./overseaark start`. |
 | `model verification failed` | Missing, truncated, unsafe, or SHA-mismatched file. | Rerun `./overseaark start`; invalid locked files are removed and fetched again. |
 | Adapter command timed out | A heavy adapter exceeded `OVERSEAARK_ADAPTER_TIMEOUT`. | Inspect adapter logs and increase timeout only when the run is otherwise healthy. |
+| Backend warmup fails or a resident worker repeatedly restarts | A resident runtime failed to load or the warm profile exceeds current headroom. | Restore `OVERSEAARK_RESIDENT_ADAPTERS=asr,tts` and `OVERSEAARK_KEEP_VLLM_RESIDENT=0`, restart, then inspect backend logs, `/api/v1/models`, `free -h`, and `nvidia-smi`. |
+| OOM during Step1X/Cosmos transition | Too many models were kept warm or another process is consuming unified memory. | Remove `image` from `OVERSEAARK_RESIDENT_ADAPTERS`, keep vLLM residency disabled, stop unrelated GPU processes, and rerun from the failed stage. |
 | `LLM server URL must remain localhost-only` | A remote `OVERSEAARK_LLM_BASE_URL` was configured. | Use the default `http://127.0.0.1:8011`. |
 | Frontend unavailable | `runtime/frontend-dist` missing or backend not running. | Rerun `./overseaark start`; check `./overseaark logs all`. |
 | Upload rejected with 415 | Unsupported content type or product-image header mismatch. | Use real PNG/JPEG/WebP files and keep the multipart `type=` value accurate. |
+| Asset endpoint returns 404 | The producing stage has not succeeded, the campaign lacks that language, or the key is invalid. | Wait for the relevant stage and use only `source`, `poster`, `video`, `qc`, or `audio-{zh|en|ja}`. |
+| Single-language export returns 422 | The language is unsupported or was not requested for that campaign. | Use `zh`, `en`, or `ja` and select a language included at campaign creation. |

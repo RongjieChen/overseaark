@@ -9,6 +9,7 @@ import shutil
 import shlex
 import tempfile
 import time
+import uuid
 import wave
 from abc import ABC
 from pathlib import Path
@@ -29,6 +30,13 @@ PNG_1X1 = base64.b64decode(
 
 class AdapterError(RuntimeError):
     pass
+
+
+class _ResidentRequestError(AdapterError):
+    def __init__(self, message: str, *, error_type: str, restart_worker: bool):
+        super().__init__(message)
+        self.error_type = error_type
+        self.restart_worker = restart_worker
 
 
 class ModelHooks(ABC):
@@ -66,7 +74,6 @@ class MockModelHooks(ModelHooks):
 
     async def llm(self, task: str, payload: dict[str, Any]) -> dict[str, Any]:
         await asyncio.sleep(0)
-        description = payload.get("description", "")
         if task == "market_positioning":
             return {
                 "positioning": "Premium cross-border product for practical daily use",
@@ -91,22 +98,40 @@ class MockModelHooks(ModelHooks):
             }
         if task == "multilingual_copy":
             languages = payload.get("languages", ["zh", "en", "ja"])
-            return {
-                "copy": {
-                    language: {
-                        "headline": f"{language.upper()} launch headline",
-                        "title": f"{language.upper()} launch headline",
-                        "selling_points": ["Localized trust", "Practical value", "Fast launch"],
-                        "detail": f"{description[:120]} ({language})",
-                        "body": f"{description[:120]} ({language})",
-                        "outreach_email": f"A localized partner introduction for {description[:80]} ({language})",
-                        "video_script": f"{description[:120]} ({language})",
-                        "cta": {"zh": "立即了解", "en": "Learn more", "ja": "詳しく見る"}.get(
-                            language, "Learn more"
-                        ),
-                    }
-                    for language in languages
+            localized_copy = {
+                "zh": {
+                    "headline": "让好产品轻松走向全球",
+                    "title": "全球市场本地化发布方案",
+                    "selling_points": ["可信的本地化表达", "清晰的产品价值", "快速生成营销素材"],
+                    "detail": "围绕目标市场需求，用自然中文呈现产品价值、使用场景与购买理由。",
+                    "body": "从产品信息出发，形成适合目标市场的定位、卖点、触达文案与演示素材。",
+                    "outreach_email": "您好，我们为这款产品准备了完整的本地化上市方案，期待与您进一步交流。",
+                    "video_script": "本地生成多语素材，让好产品更快走向全球。",
+                    "cta": "立即了解",
                 },
+                "en": {
+                    "headline": "Launch a trusted product story worldwide",
+                    "title": "Localized global market launch",
+                    "selling_points": ["Localized trust", "Clear product value", "Fast asset creation"],
+                    "detail": "Present the product value, use cases, and purchase reasons in natural English.",
+                    "body": "Turn product information into positioning, benefits, outreach copy, and demo-ready assets.",
+                    "outreach_email": "Hello, we prepared a complete localized launch package and would welcome a conversation.",
+                    "video_script": "Create localized assets locally and launch worldwide faster.",
+                    "cta": "Learn more",
+                },
+                "ja": {
+                    "headline": "信頼できる商品ストーリーを世界へ",
+                    "title": "海外市場向けローカライズ提案",
+                    "selling_points": ["自然なローカライズ", "明確な商品価値", "素早い素材制作"],
+                    "detail": "商品価値や利用シーン、購入理由を自然な日本語でわかりやすく伝えます。",
+                    "body": "商品情報から市場ポジション、訴求点、営業文、デモ素材まで一貫して制作します。",
+                    "outreach_email": "こんにちは。本商品の市場展開に向けたローカライズ資料をご用意しました。ぜひご相談ください。",
+                    "video_script": "多言語素材をローカルで制作し、世界へ素早く届けます。",
+                    "cta": "詳しく見る",
+                },
+            }
+            return {
+                "copy": {language: localized_copy.get(language, localized_copy["en"]) for language in languages},
                 "model": LLM_MODEL,
             }
         if task == "quality_packaging":
@@ -183,13 +208,82 @@ class MockModelHooks(ModelHooks):
 class CommandModelHooks(ModelHooks):
     mode = "command"
 
-    def __init__(self, commands: dict[str, str]):
+    def __init__(
+        self,
+        commands: dict[str, str],
+        *,
+        resident_adapters: set[str] | None = None,
+        keep_vllm_resident: bool | None = None,
+    ):
         self.commands = commands
+        self.resident_adapters = (
+            _default_resident_adapters() if resident_adapters is None else resident_adapters
+        )
+        self.keep_vllm_resident = (
+            os.environ.get("OVERSEAARK_KEEP_VLLM_RESIDENT", "0") == "1"
+            if keep_vllm_resident is None
+            else keep_vllm_resident
+        )
+        self._resident = {
+            name: ResidentCommandAdapter(name, commands[name])
+            for name in self.resident_adapters
+            if name in commands
+        }
 
     async def _set_llm_active(self, active: bool) -> None:
+        if not active and self.keep_vllm_resident:
+            return
+        if not active:
+            await self._stop_llm()
+            return
         control = self.commands.get("llm_control")
         if control:
-            await _run_control_command(control, "start" if active else "stop")
+            await _run_control_command(control, "start")
+
+    async def _stop_llm(self) -> None:
+        control = self.commands.get("llm_control")
+        if control:
+            await _run_control_command(control, "stop")
+
+    async def warmup(self, adapters: set[str] | None = None) -> dict[str, dict[str, Any]]:
+        selected = set(self._resident) if adapters is None else adapters
+        statuses: dict[str, dict[str, Any]] = {}
+        warmed: list[str] = []
+        try:
+            for name in sorted(selected):
+                worker = self._resident.get(name)
+                if worker is None:
+                    continue
+                statuses[name] = await worker.warmup()
+                warmed.append(name)
+        except Exception:
+            for name in warmed:
+                worker = self._resident.get(name)
+                if worker is not None:
+                    await worker.aclose()
+            raise
+        return statuses
+
+    async def warmup_llm(self) -> dict[str, Any]:
+        await self._set_llm_active(True)
+        return {"ready": True, "resident": self.keep_vllm_resident}
+
+    async def prepare_idle(self) -> dict[str, Any]:
+        try:
+            return {"llm": await self.warmup_llm(), "workers": await self.warmup()}
+        except Exception:
+            for worker in self._resident.values():
+                await worker.aclose()
+            await self._stop_llm()
+            raise
+
+    async def status(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "resident_adapters": sorted(self._resident),
+            "workers": {name: worker.status() for name, worker in sorted(self._resident.items())},
+            "keep_vllm_resident": self.keep_vllm_resident,
+        }
 
     async def llm(self, task: str, payload: dict[str, Any]) -> dict[str, Any]:
         await self._set_llm_active(True)
@@ -199,24 +293,21 @@ class CommandModelHooks(ModelHooks):
         self, prompt: str, source_image: Path, output_path: Path, overlay_text: str = ""
     ) -> dict[str, Any]:
         await self._set_llm_active(False)
-        result = await _run_command(
-            self.commands["image"],
-            {
-                "prompt": prompt,
-                "source_image": str(source_image),
-                "output_path": str(output_path),
-                "overlay_text": overlay_text,
-            },
-        )
+        payload = {
+            "prompt": prompt,
+            "source_image": str(source_image),
+            "output_path": str(output_path),
+            "overlay_text": overlay_text,
+        }
+        result = await self._run_adapter("image", payload)
         result.setdefault("image_path", str(output_path))
         return result
 
     async def video(self, prompt: str, image_path: Path, output_path: Path) -> dict[str, Any]:
         await self._set_llm_active(False)
         try:
-            result = await _run_command(
-                self.commands["video"],
-                {"prompt": prompt, "image_path": str(image_path), "output_path": str(output_path)},
+            result = await self._run_adapter(
+                "video", {"prompt": prompt, "image_path": str(image_path), "output_path": str(output_path)}
             )
         except AdapterError as exc:
             if os.environ.get("OVERSEAARK_ALLOW_DEGRADED_VIDEO", "1") != "1":
@@ -227,10 +318,7 @@ class CommandModelHooks(ModelHooks):
 
     async def asr(self, audio_path: Path, language: str) -> dict[str, Any]:
         await self._set_llm_active(False)
-        result = await _run_command(
-            self.commands["asr"],
-            {"audio_path": str(audio_path), "language": language},
-        )
+        result = await self._run_adapter("asr", {"audio_path": str(audio_path), "language": language})
         for key in ("text", "language", "segments"):
             if key not in result:
                 raise AdapterError(f"ASR command output missing {key!r}")
@@ -246,8 +334,8 @@ class CommandModelHooks(ModelHooks):
     ) -> dict[str, Any]:
         await self._set_llm_active(False)
         selected_speaker = speaker or DEFAULT_TTS_SPEAKERS.get(language, "Jason")
-        result = await _run_command(
-            self.commands["tts"],
+        result = await self._run_adapter(
+            "tts",
             {
                 "text": text,
                 "language": language,
@@ -263,7 +351,15 @@ class CommandModelHooks(ModelHooks):
         return result
 
     async def cleanup(self) -> None:
-        await self._set_llm_active(False)
+        for worker in self._resident.values():
+            await worker.aclose()
+        await self._stop_llm()
+
+    async def _run_adapter(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        worker = self._resident.get(name)
+        if worker is not None:
+            return await worker.request(payload)
+        return await _run_command(self.commands[name], payload)
 
 
 class ModelManager:
@@ -271,6 +367,15 @@ class ModelManager:
         self.hooks = hooks
         self.mode = hooks.mode
         self._lock = asyncio.Lock()
+        self._preparation_state: dict[str, Any] = {
+            "status": "ready" if hooks.mode == "mock" else "pending",
+            "reason": "mock adapters need no GPU warmup" if hooks.mode == "mock" else "startup",
+            "result": {},
+            "error": None,
+        }
+
+    def preparation_status(self) -> dict[str, Any]:
+        return dict(self._preparation_state)
 
     async def llm(self, task: str, payload: dict[str, Any]) -> dict[str, Any]:
         async with self._lock:
@@ -319,15 +424,65 @@ class ModelManager:
         async with self._lock:
             await self.hooks.cleanup()
 
+    async def warmup_workers(self, adapters: set[str] | None = None) -> dict[str, dict[str, Any]]:
+        async with self._lock:
+            warmup = getattr(self.hooks, "warmup", None)
+            if warmup is None:
+                return {}
+            return await warmup(adapters)
 
-def build_model_manager(mode: str, commands: dict[str, str | None]) -> ModelManager:
+    async def worker_status(self) -> dict[str, Any]:
+        async with self._lock:
+            status = getattr(self.hooks, "status", None)
+            if status is None:
+                return {"mode": self.mode, "resident_adapters": [], "workers": {}}
+            return await status()
+
+    async def warmup_llm(self) -> dict[str, Any]:
+        async with self._lock:
+            warmup_llm = getattr(self.hooks, "warmup_llm", None)
+            if warmup_llm is None:
+                return {"ready": False, "resident": False}
+            return await warmup_llm()
+
+    async def prepare_idle(self, reason: str = "idle") -> dict[str, Any]:
+        self._preparation_state.update(status="warming", reason=reason, result={}, error=None)
+        try:
+            async with self._lock:
+                prepare_idle = getattr(self.hooks, "prepare_idle", None)
+                if prepare_idle is None:
+                    result = {"llm": {"ready": False, "resident": False}, "workers": {}}
+                else:
+                    result = await prepare_idle()
+        except asyncio.CancelledError:
+            self._preparation_state.update(
+                status="cancelled",
+                error="model warmup was cancelled",
+            )
+            raise
+        except Exception as exc:
+            self._preparation_state.update(status="degraded", error=str(exc))
+            raise
+        self._preparation_state.update(status="ready", result=result, error=None)
+        return result
+
+
+def build_model_manager(
+    mode: str,
+    commands: dict[str, str | None],
+    *,
+    resident_adapters: str | set[str] | None = None,
+    keep_vllm_resident: bool | None = None,
+) -> ModelManager:
     if mode == "command":
         missing = [name for name in ("llm", "image", "video", "asr", "tts") if not commands.get(name)]
         if missing:
             raise ValueError(f"command adapter mode requires commands for: {', '.join(missing)}")
         return ModelManager(
             CommandModelHooks(
-                {key: str(value) for key, value in commands.items() if value is not None}
+                {key: str(value) for key, value in commands.items() if value is not None},
+                resident_adapters=_parse_resident_adapters(resident_adapters),
+                keep_vllm_resident=keep_vllm_resident,
             )
         )
     if mode != "mock":
@@ -335,16 +490,42 @@ def build_model_manager(mode: str, commands: dict[str, str | None]) -> ModelMana
     return ModelManager(MockModelHooks())
 
 
-async def _run_command(command: str, payload: dict[str, Any]) -> dict[str, Any]:
-    args = shlex.split(command)
-    if not args:
-        raise AdapterError("empty adapter command")
+def _adapter_timeout() -> float:
     try:
         timeout = float(os.environ.get("OVERSEAARK_ADAPTER_TIMEOUT", "1200"))
     except ValueError as exc:
         raise AdapterError("OVERSEAARK_ADAPTER_TIMEOUT must be numeric") from exc
     if timeout <= 0:
         raise AdapterError("OVERSEAARK_ADAPTER_TIMEOUT must be greater than zero")
+    return timeout
+
+
+def _default_resident_adapters() -> set[str]:
+    configured = os.environ.get("OVERSEAARK_RESIDENT_ADAPTERS")
+    if configured is None:
+        return {"asr", "tts"}
+    return _parse_resident_adapters(configured) or set()
+
+
+def _parse_resident_adapters(value: str | set[str] | None) -> set[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, set):
+        return set(value)
+    names = {item.strip().lower() for item in value.split(",") if item.strip()}
+    unknown = names - {"asr", "tts", "image"}
+    if unknown:
+        raise ValueError(
+            "OVERSEAARK_RESIDENT_ADAPTERS supports only: asr, tts, image"
+        )
+    return names
+
+
+async def _run_command(command: str, payload: dict[str, Any]) -> dict[str, Any]:
+    args = shlex.split(command)
+    if not args:
+        raise AdapterError("empty adapter command")
+    timeout = _adapter_timeout()
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE,
@@ -370,6 +551,149 @@ async def _run_command(command: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise AdapterError("adapter command returned non-object JSON")
     return result
+
+
+class ResidentCommandAdapter:
+    def __init__(self, name: str, command: str):
+        self.name = name
+        self.command = command
+        self.proc: asyncio.subprocess.Process | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
+        self._stderr_tail = ""
+        self._starts = 0
+        self._ready = False
+
+    async def warmup(self) -> dict[str, Any]:
+        await self._ensure_started()
+        return {"running": True, "pid": self.proc.pid if self.proc else None, "starts": self._starts}
+
+    async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            await self._ensure_started()
+            assert self.proc is not None
+            timeout = _adapter_timeout()
+            result = await asyncio.wait_for(self._request_once(payload), timeout=timeout)
+        except TimeoutError as exc:
+            await self._restart_after_failure()
+            raise AdapterError(
+                f"resident {self.name} adapter timed out after {_adapter_timeout():g}s; worker was restarted"
+            ) from exc
+        except asyncio.CancelledError:
+            # The worker executes one GPU request at a time. Killing its process
+            # group is the only reliable way to ensure cancelled inference does
+            # not continue consuming GPU memory behind the campaign task.
+            await self.aclose()
+            raise
+        except _ResidentRequestError as exc:
+            if exc.restart_worker:
+                await self._restart_after_failure()
+                raise AdapterError(
+                    f"resident {self.name} adapter failed with {exc.error_type}: {exc}; "
+                    "worker was restarted"
+                ) from exc
+            raise AdapterError(
+                f"resident {self.name} adapter rejected the request with {exc.error_type}: {exc}"
+            ) from exc
+        except (BrokenPipeError, EOFError, ConnectionResetError) as exc:
+            await self._restart_after_failure()
+            raise AdapterError(f"resident {self.name} adapter exited unexpectedly; worker was restarted") from exc
+        if not isinstance(result, dict):
+            raise AdapterError(f"resident {self.name} adapter returned non-object JSON")
+        return result
+
+    def status(self) -> dict[str, Any]:
+        running = self.proc is not None and self.proc.returncode is None
+        return {
+            "running": running,
+            "ready": running and self._ready,
+            "pid": self.proc.pid if running and self.proc else None,
+            "starts": self._starts,
+        }
+
+    async def aclose(self) -> None:
+        proc = self.proc
+        self.proc = None
+        self._ready = False
+        if proc is not None and proc.returncode is None:
+            await _terminate_process_group(proc)
+        if self._stderr_task is not None:
+            self._stderr_task.cancel()
+            await asyncio.gather(self._stderr_task, return_exceptions=True)
+            self._stderr_task = None
+
+    async def _ensure_started(self) -> None:
+        if self.proc is not None and self.proc.returncode is None:
+            return
+        await self.aclose()
+        args = shlex.split(self.command)
+        if not args:
+            raise AdapterError(f"empty resident {self.name} adapter command")
+        self.proc = await asyncio.create_subprocess_exec(
+            *args,
+            "--resident",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        self._starts += 1
+        self._ready = False
+        self._stderr_tail = ""
+        self._stderr_task = asyncio.create_task(self._capture_stderr(self.proc))
+        try:
+            await asyncio.wait_for(self._resident_call({"action": "warmup"}), timeout=_adapter_timeout())
+            self._ready = True
+        except Exception:
+            await self.aclose()
+            raise
+
+    async def _request_once(self, payload: dict[str, Any]) -> Any:
+        return await self._resident_call({"action": "request", "payload": payload})
+
+    async def _resident_call(self, message: dict[str, Any]) -> Any:
+        assert self.proc is not None and self.proc.stdin is not None and self.proc.stdout is not None
+        request_id = str(uuid.uuid4())
+        envelope = {"request_id": request_id, **message}
+        self.proc.stdin.write((json.dumps(envelope) + "\n").encode("utf-8"))
+        await self.proc.stdin.drain()
+        while True:
+            line = await self.proc.stdout.readline()
+            if not line:
+                detail = self._stderr_tail.strip()
+                raise EOFError(detail or f"resident {self.name} adapter closed stdout")
+            try:
+                response = json.loads(line.decode("utf-8", errors="replace"))
+            except json.JSONDecodeError:
+                continue
+            if response.get("request_id") != request_id:
+                continue
+            if response.get("ok") is True:
+                return response.get("result", {})
+            error = response.get("error")
+            if isinstance(error, dict):
+                message = str(error.get("message") or f"resident {self.name} adapter failed")
+                error_type = str(error.get("type") or "AdapterError")
+                restart_worker = bool(
+                    error.get("restart_worker", error.get("fatal", False))
+                )
+                raise _ResidentRequestError(
+                    message,
+                    error_type=error_type,
+                    restart_worker=restart_worker,
+                )
+            raise AdapterError(str(error or f"resident {self.name} adapter failed"))
+
+    async def _restart_after_failure(self) -> None:
+        await self.aclose()
+        await self._ensure_started()
+
+    async def _capture_stderr(self, proc: asyncio.subprocess.Process) -> None:
+        assert proc.stderr is not None
+        while True:
+            chunk = await proc.stderr.readline()
+            if not chunk:
+                return
+            self._stderr_tail = (self._stderr_tail + chunk.decode("utf-8", errors="replace"))[-4000:]
 
 
 async def _run_control_command(command: str, action: str) -> None:

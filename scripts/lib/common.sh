@@ -23,6 +23,7 @@ load_env() {
       OVERSEAARK_GITHUB_ASSET_PREFIX
       OVERSEAARK_ADAPTER_MODE OVERSEAARK_ALLOW_DEGRADED_VIDEO
       OVERSEAARK_ADAPTER_TIMEOUT OVERSEAARK_BENCH_TIMEOUT
+      OVERSEAARK_RESIDENT_ADAPTERS OVERSEAARK_KEEP_VLLM_RESIDENT
       OVERSEAARK_LLM_TOKENS OVERSEAARK_LLM_TIMEOUT
       OVERSEAARK_LLM_CONTROL_COMMAND
       OVERSEAARK_VLLM_VERSION OVERSEAARK_VLLM_WHEEL_URL
@@ -78,6 +79,8 @@ load_env() {
   export OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP="${OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP:-1}"
   export OVERSEAARK_SYNC_OPTIONAL_MODELS="${OVERSEAARK_SYNC_OPTIONAL_MODELS:-0}"
   export OVERSEAARK_ADAPTER_MODE="${OVERSEAARK_ADAPTER_MODE:-$default_adapter_mode}"
+  export OVERSEAARK_RESIDENT_ADAPTERS="${OVERSEAARK_RESIDENT_ADAPTERS:-asr,tts}"
+  export OVERSEAARK_KEEP_VLLM_RESIDENT="${OVERSEAARK_KEEP_VLLM_RESIDENT:-0}"
   export OVERSEAARK_PYPI_INDEX="${OVERSEAARK_PYPI_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
   export OVERSEAARK_PYPI_FILE_PREFIX="${OVERSEAARK_PYPI_FILE_PREFIX-https://pypi.tuna.tsinghua.edu.cn/packages/}"
   export OVERSEAARK_GITHUB_GIT_PREFIX="${OVERSEAARK_GITHUB_GIT_PREFIX-https://gh-proxy.com/https://github.com/}"
@@ -177,7 +180,7 @@ is_truthy() {
 
 pid_alive() {
   local pid="${1:-}"
-  [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" >/dev/null 2>&1
 }
 
 read_pid() {
@@ -186,15 +189,136 @@ read_pid() {
   [[ -f "$file" ]] && sed -n '1p' "$file"
 }
 
+read_pid_identity() {
+  local name="$1"
+  local file="$OVERSEAARK_PID_DIR/$name.pid"
+  [[ -f "$file" ]] && sed -n '2p' "$file"
+}
+
 write_pid() {
   local name="$1"
   local pid="$2"
-  printf '%s\n' "$pid" > "$OVERSEAARK_PID_DIR/$name.pid"
+  local identity="${3:-}"
+  local file="$OVERSEAARK_PID_DIR/$name.pid"
+  local temporary="$file.tmp.$$"
+  [[ -n "$identity" ]] || identity="$(process_identity "$pid" || true)"
+  [[ -n "$identity" ]] || return 1
+  printf '%s\n%s\n' "$pid" "$identity" > "$temporary"
+  mv -f "$temporary" "$file"
 }
 
 remove_pid() {
   local name="$1"
   rm -f "$OVERSEAARK_PID_DIR/$name.pid"
+}
+
+read_pgid() {
+  local name="$1"
+  local file="$OVERSEAARK_PID_DIR/$name.pgid"
+  [[ -f "$file" ]] && sed -n '1p' "$file"
+}
+
+write_pgid() {
+  local name="$1"
+  local pgid="$2"
+  local file="$OVERSEAARK_PID_DIR/$name.pgid"
+  local temporary="$file.tmp.$$"
+  printf '%s\n' "$pgid" > "$temporary"
+  mv -f "$temporary" "$file"
+}
+
+remove_pgid() {
+  local name="$1"
+  rm -f "$OVERSEAARK_PID_DIR/$name.pgid"
+}
+
+remove_process_state() {
+  local name="$1"
+  remove_pid "$name"
+  remove_pgid "$name"
+}
+
+process_pgid() {
+  local pid="${1:-}"
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  ps -o pgid= -p "$pid" 2>/dev/null | awk 'NR == 1 { gsub(/[[:space:]]/, ""); if ($0 ~ /^[1-9][0-9]*$/) print; }'
+}
+
+# Identify a process across PID reuse. Linux combines the kernel boot ID with
+# /proc starttime (clock ticks since boot); the portable fallback uses ps's
+# stable launch timestamp. This value is persisted next to each managed PID.
+process_identity() {
+  local pid="${1:-}"
+  local boot_id stat_line stat_tail started
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  if [[ -r "/proc/$pid/stat" && -r /proc/sys/kernel/random/boot_id ]]; then
+    boot_id="$(sed -n '1p' /proc/sys/kernel/random/boot_id 2>/dev/null || true)"
+    stat_line="$(sed -n '1p' "/proc/$pid/stat" 2>/dev/null || true)"
+    stat_tail="${stat_line##*) }"
+    started="$(printf '%s\n' "$stat_tail" | awk 'NR == 1 { print $20 }')"
+    if [[ -n "$boot_id" && "$started" =~ ^[0-9]+$ ]]; then
+      printf 'linux:%s:%s\n' "$boot_id" "$started"
+      return 0
+    fi
+  fi
+  started="$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null | awk 'NR == 1 { $1=$1; print }')"
+  [[ -n "$started" ]] || return 1
+  printf 'ps:%s\n' "$started"
+}
+
+process_identity_matches() {
+  local pid="${1:-}"
+  local expected="${2:-}"
+  local current
+  [[ -n "$expected" ]] || return 1
+  current="$(process_identity "$pid" || true)"
+  [[ -n "$current" && "$current" == "$expected" ]]
+}
+
+process_group_alive() {
+  local pgid="${1:-}"
+  [[ "$pgid" =~ ^[1-9][0-9]*$ ]] && kill -0 -- "-$pgid" >/dev/null 2>&1
+}
+
+# Return a point-in-time list of "PID PGID identity" records below root_pid.
+# The single ps snapshot is important: once a service exits, independently-
+# sessioned GPU workers are reparented and can no longer be proven to belong to
+# that service. Identity tokens keep the later KILL fallback safe from PID reuse.
+descendant_processes() {
+  local root_pid="${1:-}"
+  local snapshot child_pid child_pgid child_identity
+  [[ "$root_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  snapshot="$(ps -axo pid=,ppid=,pgid= 2>/dev/null | awk -v root="$root_pid" '
+    {
+      count += 1
+      pid[count] = $1
+      parent[$1] = $2
+      group[$1] = $3
+    }
+    END {
+      for (row = 1; row <= count; row += 1) {
+        candidate = pid[row]
+        cursor = candidate
+        for (depth = 0; depth <= count; depth += 1) {
+          ancestor = parent[cursor]
+          if (ancestor == root) {
+            print candidate, group[candidate]
+            break
+          }
+          if (ancestor == "" || ancestor == 0 || ancestor == cursor) {
+            break
+          }
+          cursor = ancestor
+        }
+      }
+    }
+  ')"
+  while read -r child_pid child_pgid; do
+    [[ "$child_pid" =~ ^[1-9][0-9]*$ && "$child_pgid" =~ ^[1-9][0-9]*$ ]] || continue
+    child_identity="$(process_identity "$child_pid" || true)"
+    [[ -n "$child_identity" ]] || continue
+    printf '%s %s %s\n' "$child_pid" "$child_pgid" "$child_identity"
+  done <<< "$snapshot"
 }
 
 python_bin() {

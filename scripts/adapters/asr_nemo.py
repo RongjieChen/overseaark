@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import re
+import sys
 
-from adapter_common import cuda_cleanup, models_root, read_payload, require_path, write_result
+from adapter_common import cuda_cleanup, models_root, read_payload, require_path, run_resident, write_result
 
 LANGUAGE_PROMPTS = {
     "auto": "auto",
@@ -41,8 +42,7 @@ def _segments(result: object, text: str) -> list[dict[str, object]]:
     return segments or [{"start": 0.0, "end": 0.0, "text": text}]
 
 
-def main() -> None:
-    payload = read_payload()
+def build_worker():
     model_path = require_path(
         models_root() / "nvidia/nemotron-3.5-asr-streaming-0.6b/nemotron-3.5-asr-streaming-0.6b.nemo",
         "Nemotron ASR .nemo",
@@ -53,44 +53,55 @@ def main() -> None:
     except Exception as exc:
         raise SystemExit("ASR adapter requires NVIDIA NeMo installed in the ASR environment") from exc
 
-    language = str(payload.get("language") or "auto")
-    if language not in LANGUAGE_PROMPTS:
-        raise SystemExit(f"unsupported ASR language: {language}")
     model = nemo_asr.models.ASRModel.restore_from(str(model_path), map_location="cuda")
-    transcribe_config = RNNTPromptTranscribeConfig(
-        use_lhotse=False,
-        batch_size=1,
-        return_hypotheses=True,
-        num_workers=0,
-        timestamps=True,
-        target_lang=LANGUAGE_PROMPTS[language],
-    )
-    result = model.transcribe(
-        [payload["audio_path"]],
-        timestamps=True,
-        override_config=transcribe_config,
-    )[0]
-    text = str(_value(result, "text", result if isinstance(result, str) else ""))
-    tag = re.search(r"<([a-z]{2}(?:-[A-Z]{2})?)>\s*$", text)
-    tagged_language = tag.group(1) if tag else None
-    if tag:
-        text = text[: tag.start()].rstrip()
-    detected = str(
-        _value(result, "language", _value(result, "lang", tagged_language or language))
-    )
-    if detected in LANGUAGE_PROMPTS.values():
-        detected = detected.split("-", 1)[0]
-    write_result({
-        "text": text,
-        "language": detected,
-        "detected_language": detected,
-        "segments": _segments(result, text),
-        "model": str(model_path),
-    })
+
+    def transcribe(payload: dict[str, object]) -> dict[str, object]:
+        language = str(payload.get("language") or "auto")
+        if language not in LANGUAGE_PROMPTS:
+            raise SystemExit(f"unsupported ASR language: {language}")
+        transcribe_config = RNNTPromptTranscribeConfig(
+            use_lhotse=False,
+            batch_size=1,
+            return_hypotheses=True,
+            num_workers=0,
+            timestamps=True,
+            target_lang=LANGUAGE_PROMPTS[language],
+        )
+        result = model.transcribe(
+            [payload["audio_path"]],
+            timestamps=True,
+            override_config=transcribe_config,
+        )[0]
+        text = str(_value(result, "text", result if isinstance(result, str) else ""))
+        tag = re.search(r"<([a-z]{2}(?:-[A-Z]{2})?)>\s*$", text)
+        tagged_language = tag.group(1) if tag else None
+        if tag:
+            text = text[: tag.start()].rstrip()
+        detected = str(
+            _value(result, "language", _value(result, "lang", tagged_language or language))
+        )
+        if detected in LANGUAGE_PROMPTS.values():
+            detected = detected.split("-", 1)[0]
+        return {
+            "text": text,
+            "language": detected,
+            "detected_language": detected,
+            "segments": _segments(result, text),
+            "model": str(model_path),
+        }
+
+    return transcribe
+
+
+def main() -> None:
+    write_result(build_worker()(read_payload()))
 
 
 if __name__ == "__main__":
     try:
-        main()
+        if "--resident" in sys.argv[1:]:
+            run_resident(build_worker)
+        else:
+            main()
     finally:
         cuda_cleanup()

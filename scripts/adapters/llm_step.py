@@ -185,7 +185,13 @@ def _messages(payload: dict[str, Any], task: str, schema: dict[str, Any]) -> lis
     )
     if task == "multilingual_copy":
         prompt += (
-            "\nUse exactly the requested language keys. Keep every field concise. "
+            "\nUse exactly the requested language keys and localize every field, including "
+            "title, headline, selling_points, detail, body, outreach_email, video_script, and CTA. "
+            "The zh object must be natural Simplified Chinese, the en object must be idiomatic "
+            "English, and the ja object must be natural Japanese containing Japanese script. "
+            "Do not copy source-language sentences into a different language object; only unavoidable "
+            "brand names, model names, units, and product codes may remain in their original script. "
+            "Keep every field concise. "
             "Each video_script must be natural speech lasting about 5 seconds: "
             "at most 28 Chinese/Japanese characters or 16 English words. "
             "For a zh video_script, use only Chinese characters and punctuation; "

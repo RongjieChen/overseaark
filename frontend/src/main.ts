@@ -1,9 +1,11 @@
 import { ApiClient, type ProgressStream } from "./api.js";
 import {
   createEmptyCampaign,
+  artifactsForStage,
   formatDateTime,
   mergeCampaignEvent,
   selectCampaignId,
+  selectLocalizedArtifacts,
   statusTone,
   validateDescription,
   validateProductImage,
@@ -33,7 +35,7 @@ import {
   type StreamMessageState,
 } from "./i18n.js";
 import { DEMO_IMAGE_FILENAME, fetchDemoImage, getDemoCampaignForm } from "./demo.js";
-import type { CampaignDetail, CampaignFormData, CampaignStageKey, HealthStatus, LanguageCode } from "./types.js";
+import type { Artifact, CampaignDetail, CampaignFormData, CampaignStageKey, HealthStatus, LanguageCode } from "./types.js";
 import "./styles.css";
 
 const api = new ApiClient();
@@ -214,7 +216,8 @@ function render(): void {
             </select>
             <button type="button" id="rerun-campaign" ${!canUseCampaignActions() ? "disabled" : ""}>${copy.rerun}</button>
             <button type="button" id="cancel-campaign" ${!canCancel() ? "disabled" : ""}>${copy.cancel}</button>
-            <button type="button" id="export-campaign" ${!canExport() ? "disabled" : ""}>${copy.export}</button>
+            <button type="button" id="export-all-campaign" ${!canExport() ? "disabled" : ""}>${copy.exportAll}</button>
+            <button type="button" id="export-current-campaign" ${!canExport() ? "disabled" : ""}>${copy.exportCurrent}</button>
           </div>
         </section>
       </section>
@@ -252,6 +255,18 @@ function render(): void {
           </div>
           <div class="artifact-stack">
             ${renderArtifacts()}
+          </div>
+        </article>
+
+        <article class="panel artifacts-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">${copy.artifactsEyebrow}</p>
+              <h2>${copy.stageArtifacts}</h2>
+            </div>
+          </div>
+          <div class="stage-artifact-stack">
+            ${renderStageArtifacts()}
           </div>
         </article>
       </section>
@@ -338,7 +353,7 @@ function renderStateMessages(): string {
 }
 
 function renderArtifacts(): string {
-  const artifacts = state.campaign.artifacts.filter((artifact) => artifact.language === state.selectedLanguage);
+  const artifacts = selectLocalizedArtifacts(state.campaign.artifacts, state.selectedLanguage);
   const copy = t();
   const languageLabels = getLanguageLabels(state.locale);
 
@@ -346,15 +361,97 @@ function renderArtifacts(): string {
     return `<p class="empty">${copy.emptyArtifacts(languageLabels[state.selectedLanguage])}</p>`;
   }
 
-  return artifacts.map((artifact) => `
+  return artifacts.map((artifact) => renderArtifactCard(artifact)).join("");
+}
+
+function renderStageArtifacts(): string {
+  const copy = t();
+  const stageGroups = state.campaign.stages
+    .map((stage) => ({ stage, artifacts: artifactsForStage(state.campaign.artifacts, stage.key) }))
+    .filter((group) => group.artifacts.length > 0);
+
+  if (stageGroups.length === 0) {
+    return `<p class="empty">${copy.emptyStageArtifacts}</p>`;
+  }
+
+  return stageGroups.map(({ stage, artifacts }) => `
+    <section class="stage-artifact-group">
+      <div class="stage-artifact-heading">
+        <strong>${escapeHtml(getStageText(state.locale, stage.key).label)}</strong>
+        <span>${escapeHtml(getStatusText(state.locale, stage.state))}</span>
+      </div>
+      <div class="artifact-stack">
+        ${artifacts.map((artifact) => renderArtifactCard(artifact)).join("")}
+      </div>
+    </section>
+  `).join("");
+}
+
+function renderArtifactCard(artifact: Artifact): string {
+  return `
     <section class="artifact">
       <div>
         <strong>${escapeHtml(getArtifactTitle(state.locale, artifact))}</strong>
         <span>${escapeHtml(getArtifactKindText(state.locale, artifact.kind))} · ${escapeHtml(getQualityText(state.locale, artifact.quality ?? "final"))}</span>
       </div>
-      <pre>${escapeHtml(artifact.content)}</pre>
+      ${renderArtifactBody(artifact)}
     </section>
-  `).join("");
+  `;
+}
+
+function renderArtifactBody(artifact: Artifact): string {
+  const assetUrl = artifact.assetKey && state.campaign.id ? api.assetUrl(state.campaign.id, artifact.assetKey) : "";
+
+  if (artifact.kind === "poster" && assetUrl) {
+    return `<img class="artifact-media" src="${escapeAttribute(assetUrl)}" alt="${escapeAttribute(getArtifactTitle(state.locale, artifact))}" loading="lazy" />`;
+  }
+
+  if (artifact.kind === "audio" && assetUrl) {
+    return `<audio controls preload="none" src="${escapeAttribute(assetUrl)}"></audio>${renderOptionalArtifactText(artifact)}`;
+  }
+
+  if (artifact.kind === "video" && assetUrl) {
+    return `<video controls preload="metadata" src="${escapeAttribute(assetUrl)}"></video>${renderOptionalArtifactText(artifact)}`;
+  }
+
+  if (artifact.kind === "diagnostic") {
+    return `<div class="structured-artifact">${renderStructuredArtifact(artifact.content)}</div>`;
+  }
+
+  return `<pre>${escapeHtml(artifact.content)}</pre>`;
+}
+
+function renderOptionalArtifactText(artifact: Artifact): string {
+  return artifact.content.trim() ? `<pre>${escapeHtml(artifact.content)}</pre>` : "";
+}
+
+function renderStructuredArtifact(content: string): string {
+  try {
+    return renderStructuredValue(JSON.parse(content));
+  } catch {
+    return `<pre>${escapeHtml(content)}</pre>`;
+  }
+}
+
+function renderStructuredValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `<ul>${value.map((item) => `<li>${renderStructuredValue(item)}</li>`).join("")}</ul>`;
+  }
+
+  if (value && typeof value === "object") {
+    return `
+      <dl>
+        ${Object.entries(value as Record<string, unknown>).map(([key, item]) => `
+          <div>
+            <dt>${escapeHtml(key.replaceAll("_", " "))}</dt>
+            <dd>${renderStructuredValue(item)}</dd>
+          </div>
+        `).join("")}
+      </dl>
+    `;
+  }
+
+  return `<span>${escapeHtml(String(value ?? ""))}</span>`;
 }
 
 function bindEvents(): void {
@@ -440,8 +537,12 @@ function bindEvents(): void {
     void cancelCampaign();
   });
 
-  document.querySelector("#export-campaign")?.addEventListener("click", () => {
+  document.querySelector("#export-all-campaign")?.addEventListener("click", () => {
     void exportCampaign();
+  });
+
+  document.querySelector("#export-current-campaign")?.addEventListener("click", () => {
+    void exportCampaign(state.selectedLanguage);
   });
 
   document.querySelectorAll<HTMLButtonElement>("[data-language]").forEach((button) => {
@@ -635,17 +736,17 @@ async function cancelCampaign(): Promise<void> {
   render();
 }
 
-async function exportCampaign(): Promise<void> {
+async function exportCampaign(language?: LanguageCode): Promise<void> {
   if (!state.campaign.id) {
     return;
   }
 
   try {
-    const blob = await api.exportCampaign(state.campaign.id);
+    const blob = await api.exportCampaign(state.campaign.id, language);
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `overseaark-${state.campaign.id}.zip`;
+    link.download = `overseaark-${state.campaign.id}-${language ?? "all"}.zip`;
     link.click();
     URL.revokeObjectURL(url);
   } catch (errorResponse) {
@@ -663,7 +764,12 @@ function openProgressStream(): void {
     state.campaign.id,
     state.campaign.sequence,
     (event) => {
-      state.campaign = mergeCampaignEvent(state.campaign, event);
+      const nextCampaign = mergeCampaignEvent(state.campaign, event);
+      if (nextCampaign === state.campaign) {
+        return;
+      }
+
+      state.campaign = nextCampaign;
       setStreamMessage("progressUpdate", { sequence: state.campaign.sequence });
       if (isTerminalStatus()) {
         closeStream();
@@ -700,11 +806,25 @@ async function refreshDetailFromBackend(): Promise<void> {
     return;
   }
 
+  const campaignId = state.campaign.id;
+  const sequenceAtRequest = state.campaign.sequence;
   try {
-    state.campaign = await api.getCampaign(state.campaign.id);
+    const detail = await api.getCampaign(campaignId);
+    if (state.campaign.id !== campaignId || state.campaign.sequence > sequenceAtRequest) {
+      return;
+    }
+
+    state.campaign = {
+      ...detail,
+      sequence: Math.max(detail.sequence, sequenceAtRequest),
+    };
     setStreamMessage("detailRefreshed", { sequence: state.campaign.sequence });
     render();
   } catch (errorResponse) {
+    if (state.campaign.id !== campaignId || state.campaign.sequence > sequenceAtRequest) {
+      return;
+    }
+
     addWarning(errorResponse instanceof Error ? localizeStableError(state.locale, errorResponse.message) : t().detailRefreshFailed);
   }
 }
@@ -773,4 +893,8 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value);
 }

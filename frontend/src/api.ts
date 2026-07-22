@@ -13,7 +13,9 @@ import type {
   CampaignDetail,
   CampaignEvent,
   CampaignFormData,
+  CampaignStage,
   HealthStatus,
+  LanguageCode,
 } from "./types.js";
 
 const DEFAULT_API_BASE = "/api/v1";
@@ -105,8 +107,12 @@ export class ApiClient {
     return this.postAction(id, "cancel");
   }
 
-  async exportCampaign(id: string): Promise<Blob> {
-    const response = await fetch(`${this.baseUrl}/campaigns/${encodeURIComponent(id)}/export`);
+  assetUrl(id: string, assetKey: NonNullable<Artifact["assetKey"]>): string {
+    return buildCampaignAssetUrl(this.baseUrl, id, assetKey);
+  }
+
+  async exportCampaign(id: string, language?: LanguageCode): Promise<Blob> {
+    const response = await fetch(buildCampaignExportUrl(this.baseUrl, id, language));
 
     if (!response.ok) {
       throw new Error(`Campaign export failed with HTTP ${response.status}.`);
@@ -144,7 +150,7 @@ export class ApiClient {
 
     source.onmessage = (message) => {
       try {
-        onEvent(JSON.parse(message.data) as CampaignEvent);
+        onEvent(normalizeCampaignEvent(JSON.parse(message.data)));
       } catch {
         onError("Received an unreadable progress update.");
       }
@@ -152,7 +158,7 @@ export class ApiClient {
 
     source.addEventListener("campaign", (message) => {
       try {
-        onEvent(JSON.parse((message as MessageEvent<string>).data) as CampaignEvent);
+        onEvent(normalizeCampaignEvent(JSON.parse((message as MessageEvent<string>).data)));
       } catch {
         onError("Received an unreadable campaign update.");
       }
@@ -261,21 +267,65 @@ export function normalizeCampaignDetail(payload: unknown): CampaignDetail {
         detail: stringOrUndefined(raw?.detail ?? raw?.message),
       };
     }),
-    artifacts: rawArtifacts.map((artifact, index) => {
-      const raw = asRecord(artifact);
-      return {
-        id: String(raw.id ?? `artifact-${index}`),
-        title: String(raw.title ?? raw.name ?? "Artifact"),
-        language: normalizeLanguage(raw.language),
-        kind: normalizeArtifactKind(raw.kind ?? raw.type),
-        content: String(raw.content ?? raw.text ?? ""),
-        quality: normalizeArtifactQuality(raw.quality ?? raw.status),
-        titleContext: normalizeArtifactTitleContext(raw.title_context),
-      };
-    }),
+    artifacts: normalizeArtifacts(rawArtifacts),
     warnings: rawWarnings.map(String),
     error: stringOrUndefined(record.error ?? record.error_message),
   };
+}
+
+export function normalizeCampaignEvent(payload: unknown): CampaignEvent {
+  const record = asRecord(payload);
+  const type = String(record.type ?? "campaign.update");
+  const message = stringOrUndefined(record.message);
+  const stageKey = normalizeStageKey(record.stage) ?? normalizeStageKey(asRecord(record.stage).key);
+  const eventPayload = asRecord(record.payload);
+  const stageOutput = Object.hasOwn(eventPayload, "output")
+    ? asRecord(eventPayload.output)
+    : eventPayload;
+  const artifacts = stageKey && type === "stage.succeeded"
+    ? normalizeArtifacts(normalizeRawArtifacts({ [stageKey]: stageOutput }))
+    : [];
+  const stageState = stageStateFromEventType(type);
+
+  return {
+    sequence: normalizeSequence(record.sequence),
+    type,
+    status: stringOrUndefined(record.status),
+    campaign: normalizeEventCampaign(record.campaign),
+    stage: stageKey
+      ? {
+          key: stageKey,
+          ...(stageState ? { state: stageState } : {}),
+          ...(message ? { detail: message } : {}),
+        }
+      : undefined,
+    artifact: normalizeEventArtifact(record.artifact),
+    artifacts: artifacts.length > 0 ? artifacts : undefined,
+    message,
+    payload: eventPayload,
+  };
+}
+
+function normalizeArtifacts(rawArtifacts: unknown[]): Artifact[] {
+  return rawArtifacts.map((artifact, index) => {
+    const raw = asRecord(artifact);
+    const stage = normalizeStageKey(raw.stage ?? raw.title_context_stage) ?? "market_positioning";
+    const key = normalizeArtifactKey(raw.key ?? raw.title_context_key ?? raw.name ?? "");
+    const language = normalizeOptionalLanguage(raw.language);
+    const kind = normalizeArtifactKind(raw.kind ?? raw.type ?? artifactKindFromKey(key));
+    return {
+      id: String(raw.id ?? `artifact-${index}`),
+      title: String(raw.title ?? raw.name ?? "Artifact"),
+      stage,
+      key,
+      language,
+      kind,
+      content: String(raw.content ?? raw.text ?? ""),
+      assetKey: normalizeAssetKey(raw.asset_key ?? raw.assetKey) ?? assetKeyForArtifact(stage, key, language, kind),
+      quality: normalizeArtifactQuality(raw.quality ?? raw.status),
+      titleContext: normalizeArtifactTitleContext(raw.title_context, stage, key, language),
+    };
+  });
 }
 
 function normalizeRawArtifacts(value: unknown): unknown[] {
@@ -299,37 +349,64 @@ function normalizeRawArtifacts(value: unknown): unknown[] {
 }
 
 function expandStageArtifact(stage: string, raw: Record<string, unknown>): unknown[] {
-  const explicitArtifacts = Array.isArray(raw.artifacts) ? raw.artifacts.map((entry) => ({ ...asRecord(entry), stage })) : [];
-  const generatedArtifacts = Object.entries(raw).flatMap(([key, value]) => {
+  const explicitArtifacts = Array.isArray(raw.artifacts) ? raw.artifacts.map((entry) => normalizeExplicitArtifact(stage, entry)) : [];
+  const generatedArtifacts: unknown[] = [];
+  Object.entries(raw).forEach(([key, value]) => {
     if (key === "artifacts" || value == null) {
-      return [];
+      return;
     }
 
-    if (typeof value === "object" && !Array.isArray(value)) {
+    if (isLanguageMapArtifact(value)) {
       const nested = asRecord(value);
-      return Object.entries(nested).map(([nestedKey, nestedValue]) => ({
-        id: `${stage}-${key}-${nestedKey}`,
-        title: artifactTitle(stage, key, nestedKey),
-        language: nestedKey,
-        kind: artifactKindFromKey(key),
-        content: stringifyArtifactContent(nestedValue),
-        title_context: { stage, key, language: nestedKey },
-      }));
+      Object.entries(nested).forEach(([nestedKey, nestedValue]) => {
+        generatedArtifacts.push({
+          id: `${stage}-${key}-${nestedKey}`,
+          title: artifactTitle(stage, key, nestedKey),
+          stage,
+          key,
+          language: nestedKey,
+          kind: artifactKindFromKey(key),
+          content: stringifyArtifactContent(nestedValue),
+          title_context: { stage, key, language: nestedKey },
+        });
+      });
+      return;
     }
 
-    return [
-      {
-        id: `${stage}-${key}`,
-        title: artifactTitle(stage, key),
-        language: inferLanguage(raw.language),
-        kind: artifactKindFromKey(key),
-        content: stringifyArtifactContent(value),
-        title_context: { stage, key, language: "" },
-      },
-    ];
+    generatedArtifacts.push({
+      id: `${stage}-${key}`,
+      title: artifactTitle(stage, key),
+      stage,
+      key,
+      language: inferLanguageFromKey(key, raw.language),
+      kind: artifactKindFromKey(key),
+      content: stringifyArtifactContent(value),
+      title_context: { stage, key, language: "" },
+    });
   });
 
   return [...explicitArtifacts, ...generatedArtifacts];
+}
+
+function normalizeExplicitArtifact(stage: string, value: unknown): Record<string, unknown> {
+  const raw = asRecord(value);
+  const key = normalizeArtifactKey(raw.key ?? raw.name ?? raw.title_context_key ?? "");
+  return {
+    ...raw,
+    stage: raw.stage ?? stage,
+    key,
+    language: raw.language ?? inferLanguageFromKey(key),
+  };
+}
+
+function isLanguageMapArtifact(value: unknown): boolean {
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const nested = asRecord(value);
+  const nestedKeys = Object.keys(nested);
+  return nestedKeys.length > 0 && nestedKeys.every((nestedKey) => normalizeOptionalLanguage(nestedKey));
 }
 
 function artifactTitle(stage: string, key: string, language?: string): string {
@@ -339,8 +416,12 @@ function artifactTitle(stage: string, key: string, language?: string): string {
   return `${stageLabel} ${key.replaceAll("_", " ")}${suffix}`;
 }
 
-function artifactKindFromKey(key: string): "copy" | "brief" | "image_prompt" | "audio" | "export" | "diagnostic" {
-  if (key.includes("poster") || key.includes("visual") || key.includes("prompt")) {
+function artifactKindFromKey(key: string): Artifact["kind"] {
+  if (key.includes("poster") || key.includes("image_path")) {
+    return "poster";
+  }
+
+  if (key.includes("visual") || key.includes("prompt")) {
     return "image_prompt";
   }
 
@@ -349,7 +430,7 @@ function artifactKindFromKey(key: string): "copy" | "brief" | "image_prompt" | "
   }
 
   if (key.includes("video")) {
-    return "export";
+    return "video";
   }
 
   if (key.includes("qc") || key.includes("quality")) {
@@ -378,24 +459,92 @@ export function splitMarkets(value: string): string[] {
     .filter(Boolean);
 }
 
+export function buildCampaignAssetUrl(
+  baseUrl: string,
+  campaignId: string,
+  assetKey: NonNullable<Artifact["assetKey"]>,
+): string {
+  return `${baseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(campaignId)}/assets/${encodeURIComponent(assetKey)}`;
+}
+
+export function buildCampaignExportUrl(baseUrl: string, campaignId: string, language?: LanguageCode): string {
+  const url = `${baseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(campaignId)}/export`;
+  return language ? `${url}?language=${encodeURIComponent(language)}` : url;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function normalizeSequence(value: unknown): number {
+  const sequence = Number(value);
+  return Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : 0;
+}
+
+function stageStateFromEventType(type: string): CampaignStage["state"] | undefined {
+  if (type === "stage.succeeded" || type === "stage.completed") {
+    return "complete";
+  }
+
+  if (type === "stage.failed") {
+    return "failed";
+  }
+
+  if (type === "stage.skipped") {
+    return "skipped";
+  }
+
+  if (type === "stage.started" || type === "stage.running" || type === "stage.retry") {
+    return "running";
+  }
+
+  return undefined;
+}
+
+function normalizeEventCampaign(value: unknown): Partial<CampaignDetail> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Partial<CampaignDetail>;
+}
+
+function normalizeEventArtifact(value: unknown): Artifact | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return normalizeArtifacts([value])[0];
 }
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function normalizeLanguage(value: unknown): "zh" | "en" | "ja" {
-  return value === "zh" || value === "ja" ? value : "en";
+function normalizeOptionalLanguage(value: unknown): LanguageCode | undefined {
+  return value === "zh" || value === "en" || value === "ja" ? value : undefined;
 }
 
-function inferLanguage(value: unknown): "zh" | "en" | "ja" {
-  return normalizeLanguage(value);
+function inferLanguageFromKey(key: string, fallback?: unknown): LanguageCode | undefined {
+  const fallbackLanguage = normalizeOptionalLanguage(fallback);
+  if (fallbackLanguage) {
+    return fallbackLanguage;
+  }
+
+  const match = /(?:^|[_-])(zh|en|ja)(?:$|[_-])/u.exec(key);
+  return normalizeOptionalLanguage(match?.[1]);
 }
 
-function normalizeArtifactKind(value: unknown): "copy" | "brief" | "image_prompt" | "audio" | "export" | "diagnostic" {
-  if (value === "brief" || value === "image_prompt" || value === "audio" || value === "export" || value === "diagnostic") {
+function normalizeArtifactKind(value: unknown): Artifact["kind"] {
+  if (
+    value === "brief" ||
+    value === "image_prompt" ||
+    value === "poster" ||
+    value === "audio" ||
+    value === "video" ||
+    value === "export" ||
+    value === "diagnostic"
+  ) {
     return value;
   }
 
@@ -410,17 +559,65 @@ function normalizeArtifactQuality(value: unknown): "final" | "partial" | "degrad
   return "final";
 }
 
-function normalizeArtifactTitleContext(value: unknown): Artifact["titleContext"] {
+function normalizeArtifactKey(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "artifact";
+}
+
+function normalizeAssetKey(value: unknown): Artifact["assetKey"] {
+  if (
+    value === "source" ||
+    value === "poster" ||
+    value === "video" ||
+    value === "audio-zh" ||
+    value === "audio-en" ||
+    value === "audio-ja" ||
+    value === "qc"
+  ) {
+    return value;
+  }
+
+  return undefined;
+}
+
+function assetKeyForArtifact(
+  stage: Artifact["stage"],
+  key: string,
+  language: Artifact["language"],
+  kind: Artifact["kind"],
+): Artifact["assetKey"] {
+  if (stage === "visual_design" && kind === "poster") {
+    return "poster";
+  }
+
+  if (stage === "media_production" && kind === "audio" && language) {
+    return `audio-${language}`;
+  }
+
+  if (stage === "media_production" && kind === "video") {
+    return "video";
+  }
+
+  if (stage === "quality_packaging" && (key.includes("qc") || kind === "diagnostic")) {
+    return "qc";
+  }
+
+  return undefined;
+}
+
+function normalizeArtifactTitleContext(
+  value: unknown,
+  fallbackStage: Artifact["stage"],
+  fallbackKey: string,
+  fallbackLanguage: Artifact["language"],
+): Artifact["titleContext"] {
   const record = asRecord(value);
-  const stage = normalizeStageKey(record.stage);
-  const key = typeof record.key === "string" ? record.key : "";
+  const stage = normalizeStageKey(record.stage) ?? fallbackStage;
+  const key = normalizeArtifactKey(record.key ?? fallbackKey);
   if (!stage || !key) {
     return undefined;
   }
 
-  const language = record.language === "zh" || record.language === "en" || record.language === "ja"
-    ? record.language
-    : undefined;
+  const language = normalizeOptionalLanguage(record.language) ?? fallbackLanguage;
   return { stage, key, language };
 }
 
@@ -435,5 +632,5 @@ function parseSseChunk(chunk: string, onEvent: (event: CampaignEvent) => void): 
     return;
   }
 
-  onEvent(JSON.parse(data) as CampaignEvent);
+  onEvent(normalizeCampaignEvent(JSON.parse(data)));
 }

@@ -217,15 +217,26 @@ start_one() {
   local name="$1"
   local command="$2"
   local cwd="${3:-$REPO_DIR}"
-  local existing
+  local existing existing_identity
   existing="$(read_pid "$name" || true)"
 
   if pid_alive "$existing"; then
-    log "$name already running pid=$existing"
+    local existing_pgid
+    existing_identity="$(read_pid_identity "$name" || true)"
+    existing_pgid="$(read_pgid "$name" || true)"
+    if ! process_identity_matches "$existing" "$existing_identity"; then
+      die "$name PID state is missing, stale, or reused; refusing to replace a live unverified process"
+    fi
+    if [[ -n "$existing_pgid" ]]; then
+      log "$name already running pid=$existing pgid=$existing_pgid"
+    else
+      log "$name already running pid=$existing"
+    fi
     return 0
   fi
 
   ensure_dirs
+  remove_process_state "$name"
   local_runtime_env
   log "starting $name"
   (
@@ -236,8 +247,49 @@ start_one() {
       eval "exec ${OVERSEAARK_OPERATION_LOCK_FD}>&-"
     fi
     cd "$cwd"
-    nohup bash -lc "$command" >> "$OVERSEAARK_LOG_DIR/$name.log" 2>&1 &
-    write_pid "$name" "$!"
+    local launched_pid launched_pgid="" launched_identity launch_state
+    if [[ "$(uname -s)" == "Linux" ]] && have setsid; then
+      # The session leader reports its own PID/PGID after setsid. This remains
+      # correct even when util-linux setsid must fork because its caller was a
+      # process-group leader; relying on the outer shell's $! would not.
+      launch_state="$OVERSEAARK_PID_DIR/$name.launch.$$"
+      nohup setsid bash -c '
+        own_pgid="$(ps -o pgid= -p "$$" 2>/dev/null | awk '\''NR == 1 { gsub(/[[:space:]]/, ""); print }'\'')"
+        printf "%s %s\n" "$$" "$own_pgid" > "$1"
+        exec bash -lc "$2"
+      ' overseaark-session "$launch_state" "$command" >> "$OVERSEAARK_LOG_DIR/$name.log" 2>&1 &
+      local launcher_pid="$!"
+      for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        if [[ -s "$launch_state" ]]; then
+          read -r launched_pid launched_pgid < "$launch_state"
+          [[ "$launched_pid" =~ ^[1-9][0-9]*$ && "$launched_pgid" == "$launched_pid" ]] && break
+        fi
+        sleep 0.05
+      done
+      rm -f "$launch_state"
+      if [[ "$launched_pgid" != "$launched_pid" ]]; then
+        kill -TERM "$launcher_pid" >/dev/null 2>&1 || true
+        wait "$launcher_pid" 2>/dev/null || true
+        die "$name failed to enter an isolated process group"
+      fi
+      write_pgid "$name" "$launched_pgid"
+    else
+      # macOS does not ship setsid. Keep the PID-only fallback deliberately
+      # group-less so stop can never signal the lifecycle caller's group.
+      nohup bash -lc "$command" >> "$OVERSEAARK_LOG_DIR/$name.log" 2>&1 &
+      launched_pid="$!"
+    fi
+    launched_identity="$(process_identity "$launched_pid" || true)"
+    if [[ -z "$launched_identity" ]]; then
+      if [[ -n "$launched_pgid" && "$launched_pgid" == "$launched_pid" ]]; then
+        kill -TERM -- "-$launched_pgid" >/dev/null 2>&1 || true
+      else
+        kill -TERM "$launched_pid" >/dev/null 2>&1 || true
+      fi
+      remove_process_state "$name"
+      die "$name started without a verifiable process identity"
+    fi
+    write_pid "$name" "$launched_pid" "$launched_identity"
   )
 }
 
@@ -252,43 +304,198 @@ validate_startup_configuration() {
   [[ "$OVERSEAARK_VLLM_PORT" =~ ^[1-9][0-9]*$ ]] && \
     (( OVERSEAARK_VLLM_PORT <= 65535 )) || \
     die "OVERSEAARK_VLLM_PORT must be an integer from 1 to 65535"
+  [[ "$OVERSEAARK_KEEP_VLLM_RESIDENT" =~ ^[01]$ ]] || \
+    die "OVERSEAARK_KEEP_VLLM_RESIDENT must be 0 or 1"
+  [[ ",$OVERSEAARK_RESIDENT_ADAPTERS," != *",video,"* ]] || \
+    die "OVERSEAARK_RESIDENT_ADAPTERS supports only asr, tts, and optional image"
+  [[ ",$OVERSEAARK_RESIDENT_ADAPTERS," != *",llm,"* ]] || \
+    die "vLLM residency is controlled by OVERSEAARK_KEEP_VLLM_RESIDENT, not OVERSEAARK_RESIDENT_ADAPTERS"
+  local resident_name
+  local -a resident_names
+  IFS=',' read -r -a resident_names <<< "$OVERSEAARK_RESIDENT_ADAPTERS"
+  for resident_name in "${resident_names[@]}"; do
+    resident_name="${resident_name//[[:space:]]/}"
+    case "$resident_name" in
+      ""|asr|tts|image) ;;
+      *) die "OVERSEAARK_RESIDENT_ADAPTERS supports only asr, tts, and optional image" ;;
+    esac
+  done
 }
 
 stop_one() {
   local name="$1"
-  local pid
+  local pid pgid identity caller_pgid root_pgid descendants
   pid="$(read_pid "$name" || true)"
+  pgid="$(read_pgid "$name" || true)"
+  identity="$(read_pid_identity "$name" || true)"
+  caller_pgid="$(process_pgid "$$" || true)"
 
-  if ! pid_alive "$pid"; then
-    remove_pid "$name"
+  if pid_alive "$pid" && ! process_identity_matches "$pid" "$identity"; then
+    warn "$name PID state is missing or stale; refusing to signal unverified pid=$pid"
+    remove_process_state "$name"
+    return 0
+  fi
+
+  # A dead session leader does not prove its group is empty: children may keep
+  # the original PGID after the leader exits. Its start identity can no longer
+  # be revalidated, so retain recovery state and fail closed instead of either
+  # signalling an unverified group or falsely reporting it stopped.
+  if ! pid_alive "$pid" && [[ "$pgid" =~ ^[1-9][0-9]*$ && "$pgid" == "$pid" ]] && \
+     process_group_alive "$pgid"; then
+    warn "$name leader pid=$pid exited but recorded pgid=$pgid is still live; retaining state for recovery"
+    return 1
+  fi
+
+  # Only PGIDs created and recorded by start_one are trusted for group
+  # signalling. In particular, never signal the group running this command.
+  local safe_recorded_group=""
+  if [[ "$pid" =~ ^[1-9][0-9]*$ && "$pgid" == "$pid" && \
+        "$caller_pgid" =~ ^[1-9][0-9]*$ && "$pgid" != "$caller_pgid" ]] && \
+     process_identity_matches "$pid" "$identity"; then
+    safe_recorded_group="$pgid"
+  fi
+
+  if ! pid_alive "$pid" && \
+      { [[ -z "$safe_recorded_group" ]] || ! process_group_alive "$safe_recorded_group"; }; then
+    remove_process_state "$name"
     log "$name stopped"
     return 0
   fi
 
-  log "stopping $name pid=$pid"
-  kill "$pid" || true
+  # Capture independently-sessioned ResidentCommandAdapter workers before the
+  # backend can exit and they are reparented. Only these observed PID/PGID pairs
+  # are eligible for signalling below.
+  descendants="$(descendant_processes "$pid" || true)"
+  root_pgid="$(process_pgid "$pid" || true)"
+
+  if [[ -n "$safe_recorded_group" ]]; then
+    log "stopping $name pid=$pid pgid=$safe_recorded_group"
+  else
+    log "stopping $name pid=$pid"
+  fi
+  signal_process_tree TERM "$pid" "$identity" "$root_pgid" "$safe_recorded_group" "$caller_pgid" "$descendants"
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if ! pid_alive "$pid"; then
-      remove_pid "$name"
+    if ! process_tree_alive "$pid" "$identity" "$root_pgid" "$safe_recorded_group" "$caller_pgid" "$descendants"; then
+      remove_process_state "$name"
       log "$name stopped"
       return 0
     fi
     sleep 1
   done
-  kill -TERM "$pid" || true
-  sleep 1
-  if pid_alive "$pid"; then
-    kill -KILL "$pid" || true
+
+  warn "$name did not stop gracefully; sending KILL to its confirmed process tree"
+  signal_process_tree KILL "$pid" "$identity" "$root_pgid" "$safe_recorded_group" "$caller_pgid" "$descendants"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ! process_tree_alive "$pid" "$identity" "$root_pgid" "$safe_recorded_group" "$caller_pgid" "$descendants"; then
+      remove_process_state "$name"
+      log "$name stopped"
+      return 0
+    fi
+    sleep 0.1
+  done
+  warn "$name still has a confirmed process after KILL"
+  return 1
+}
+
+signal_process_tree() {
+  local signal="$1"
+  local pid="$2"
+  local identity="$3"
+  local root_pgid="$4"
+  local safe_recorded_group="$5"
+  local caller_pgid="$6"
+  local descendants="$7"
+  local child_pid child_pgid child_identity current_pgid
+
+  if [[ -n "$safe_recorded_group" ]] && process_group_alive "$safe_recorded_group"; then
+    kill "-$signal" -- "-$safe_recorded_group" >/dev/null 2>&1 || true
   fi
-  remove_pid "$name"
+
+  while read -r child_pid child_pgid child_identity; do
+    [[ "$child_pid" =~ ^[1-9][0-9]*$ && "$child_pgid" =~ ^[1-9][0-9]*$ && \
+       -n "$child_identity" ]] || continue
+    # start_new_session=True makes the worker its group leader. Requiring the
+    # observed PGID to equal an observed descendant PID avoids touching an
+    # unrelated group even if state files were stale or corrupted.
+    if [[ "$child_pgid" == "$child_pid" && \
+          "$child_pgid" != "$safe_recorded_group" && \
+          "$child_pgid" != "$caller_pgid" ]] && \
+         process_identity_matches "$child_pid" "$child_identity" && \
+         process_group_alive "$child_pgid"; then
+      kill "-$signal" -- "-$child_pgid" >/dev/null 2>&1 || true
+    fi
+  done <<< "$descendants"
+
+  # Exact-PID signalling covers the no-setsid fallback and descendants sharing
+  # their parent's group. Re-check the captured PGID first to reduce PID-reuse
+  # risk; never widen this fallback into a group signal.
+  while read -r child_pid child_pgid child_identity; do
+    [[ "$child_pid" =~ ^[1-9][0-9]*$ && "$child_pgid" =~ ^[1-9][0-9]*$ && \
+       -n "$child_identity" ]] || continue
+    current_pgid="$(process_pgid "$child_pid" || true)"
+    if [[ "$current_pgid" == "$child_pgid" ]] && \
+       process_identity_matches "$child_pid" "$child_identity"; then
+      kill "-$signal" "$child_pid" >/dev/null 2>&1 || true
+    fi
+  done <<< "$descendants"
+
+  if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+    current_pgid="$(process_pgid "$pid" || true)"
+    if [[ -n "$root_pgid" && "$current_pgid" == "$root_pgid" ]] && \
+       process_identity_matches "$pid" "$identity"; then
+      kill "-$signal" "$pid" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+process_tree_alive() {
+  local pid="$1"
+  local identity="$2"
+  local root_pgid="$3"
+  local safe_recorded_group="$4"
+  local caller_pgid="$5"
+  local descendants="$6"
+  local child_pid child_pgid child_identity current_pgid
+
+  if [[ -n "$safe_recorded_group" ]] && process_group_alive "$safe_recorded_group"; then
+    return 0
+  fi
+  if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+    current_pgid="$(process_pgid "$pid" || true)"
+    [[ -n "$root_pgid" && "$current_pgid" == "$root_pgid" ]] && \
+      process_identity_matches "$pid" "$identity" && return 0
+  fi
+  while read -r child_pid child_pgid child_identity; do
+    [[ "$child_pid" =~ ^[1-9][0-9]*$ && "$child_pgid" =~ ^[1-9][0-9]*$ && \
+       -n "$child_identity" ]] || continue
+    if [[ "$child_pgid" == "$child_pid" && \
+          "$child_pgid" != "$safe_recorded_group" && \
+          "$child_pgid" != "$caller_pgid" ]] && \
+         process_identity_matches "$child_pid" "$child_identity" && \
+         process_group_alive "$child_pgid"; then
+      return 0
+    fi
+    current_pgid="$(process_pgid "$child_pid" || true)"
+    [[ "$current_pgid" == "$child_pgid" ]] && \
+      process_identity_matches "$child_pid" "$child_identity" && return 0
+  done <<< "$descendants"
+  return 1
 }
 
 status_one() {
   local name="$1"
-  local pid
+  local pid pgid identity
   pid="$(read_pid "$name" || true)"
-  if pid_alive "$pid"; then
-    printf '%-10s running pid=%s\n' "$name" "$pid"
+  pgid="$(read_pgid "$name" || true)"
+  identity="$(read_pid_identity "$name" || true)"
+  if pid_alive "$pid" && process_identity_matches "$pid" "$identity"; then
+    if [[ -n "$pgid" ]]; then
+      printf '%-10s running pid=%s pgid=%s\n' "$name" "$pid" "$pgid"
+    else
+      printf '%-10s running pid=%s\n' "$name" "$pid"
+    fi
+  elif pid_alive "$pid"; then
+    printf '%-10s stale/unverified pid=%s\n' "$name" "$pid"
   else
     printf '%-10s stopped\n' "$name"
   fi
@@ -374,6 +581,8 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       printf 'models     %s\n' "$OVERSEAARK_MODELS_DIR"
       printf 'data       %s\n' "$OVERSEAARK_DATA_DIR"
       printf 'bind       %s:%s\n' "$OVERSEAARK_HOST" "$OVERSEAARK_BACKEND_PORT"
+      printf 'resident   %s\n' "$OVERSEAARK_RESIDENT_ADAPTERS"
+      printf 'keep-vllm  %s\n' "$OVERSEAARK_KEEP_VLLM_RESIDENT"
       status_one backend
       if [[ "$OVERSEAARK_ADAPTER_MODE" == "command" ]]; then
         status_vllm

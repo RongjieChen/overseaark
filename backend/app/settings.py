@@ -9,6 +9,8 @@ from pydantic import BaseModel
 class Settings(BaseModel):
     data_dir: Path = Path(os.getenv("OVERSEAARK_DATA_DIR", ".overseaark-data"))
     adapter_mode: str = os.getenv("OVERSEAARK_ADAPTER_MODE", "mock")
+    resident_adapters: str = os.getenv("OVERSEAARK_RESIDENT_ADAPTERS", "asr,tts")
+    keep_vllm_resident: bool = os.getenv("OVERSEAARK_KEEP_VLLM_RESIDENT", "0") == "1"
     llm_command: str | None = os.getenv("OVERSEAARK_LLM_COMMAND")
     llm_control_command: str | None = os.getenv("OVERSEAARK_LLM_CONTROL_COMMAND")
     image_command: str | None = os.getenv("OVERSEAARK_IMAGE_COMMAND")

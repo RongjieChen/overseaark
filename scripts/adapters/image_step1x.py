@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
-from adapter_common import cuda_cleanup, models_root, read_payload, require_path, write_result
+from adapter_common import cuda_cleanup, models_root, read_payload, require_path, run_resident, write_result
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -52,10 +53,8 @@ def _overlay_headline(image: Image.Image, text: str) -> Image.Image:
     return canvas.convert("RGB")
 
 
-def main() -> None:
-    payload = read_payload()
+def build_worker():
     model_dir = require_path(models_root() / "stepfun/step1x-edit-v1p2", "Step1X-Edit-v1p2 model")
-    output_path = Path(payload["output_path"])
 
     try:
         import torch
@@ -81,41 +80,43 @@ def main() -> None:
         pipe.enable_model_cpu_offload()
     else:
         pipe.to("cuda")
-    source = Image.open(payload["source_image"]).convert("RGB")
-    generator = torch.Generator(device="cpu").manual_seed(int(payload.get("seed", 0)))
-    num_inference_steps = int(
-        payload.get("num_inference_steps", os.environ.get("OVERSEAARK_STEP1X_STEPS", "6"))
-    )
-    thinking = bool(
-        payload.get(
-            "enable_thinking_mode",
-            os.environ.get("OVERSEAARK_STEP1X_THINKING", "0") == "1",
+
+    def generate(payload: dict[str, object]) -> dict[str, object]:
+        output_path = Path(str(payload["output_path"]))
+        source = Image.open(str(payload["source_image"])).convert("RGB")
+        generator = torch.Generator(device="cpu").manual_seed(int(payload.get("seed", 0)))
+        num_inference_steps = int(
+            payload.get("num_inference_steps", os.environ.get("OVERSEAARK_STEP1X_STEPS", "6"))
         )
-    )
-    reflection = bool(
-        payload.get(
-            "enable_reflection_mode",
-            os.environ.get("OVERSEAARK_STEP1X_REFLECTION", "0") == "1",
+        thinking = bool(
+            payload.get(
+                "enable_thinking_mode",
+                os.environ.get("OVERSEAARK_STEP1X_THINKING", "0") == "1",
+            )
         )
-    )
-    generation_prompt = (
-        f"{str(payload['prompt']).rstrip()} Preserve the product geometry and use a clean studio background. "
-        "Do not render text, letters, logos, captions, or watermarks; typography is added after generation."
-    )
-    pipe_output = pipe(
-        prompt=generation_prompt,
-        image=source,
-        num_inference_steps=num_inference_steps,
-        true_cfg_scale=float(payload.get("true_cfg_scale", 6.0)),
-        generator=generator,
-        enable_thinking_mode=thinking,
-        enable_reflection_mode=reflection,
-    )
-    image = _overlay_headline(pipe_output.final_images[0], str(payload.get("overlay_text", "")))
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(output_path)
-    write_result(
-        {
+        reflection = bool(
+            payload.get(
+                "enable_reflection_mode",
+                os.environ.get("OVERSEAARK_STEP1X_REFLECTION", "0") == "1",
+            )
+        )
+        generation_prompt = (
+            f"{str(payload['prompt']).rstrip()} Preserve the product geometry and use a clean studio background. "
+            "Do not render text, letters, logos, captions, or watermarks; typography is added after generation."
+        )
+        pipe_output = pipe(
+            prompt=generation_prompt,
+            image=source,
+            num_inference_steps=num_inference_steps,
+            true_cfg_scale=float(payload.get("true_cfg_scale", 6.0)),
+            generator=generator,
+            enable_thinking_mode=thinking,
+            enable_reflection_mode=reflection,
+        )
+        image = _overlay_headline(pipe_output.final_images[0], str(payload.get("overlay_text", "")))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(output_path)
+        return {
             "image_path": str(output_path),
             "model": str(model_dir),
             "fp8_layerwise": fp8_layerwise,
@@ -124,11 +125,19 @@ def main() -> None:
             "thinking": thinking,
             "reflection": reflection,
         }
-    )
+
+    return generate
+
+
+def main() -> None:
+    write_result(build_worker()(read_payload()))
 
 
 if __name__ == "__main__":
     try:
-        main()
+        if "--resident" in sys.argv[1:]:
+            run_resident(build_worker)
+        else:
+            main()
     finally:
         cuda_cleanup()
