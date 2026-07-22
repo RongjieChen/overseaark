@@ -137,6 +137,8 @@ for line in canonical.splitlines(keepends=True):
         url_start = line.find("https://")
         url_end = line.find('"', marker_at)
         suffix = line[marker_at:url_end] if marker == github_marker else line[marker_at + len(marker):url_end]
+        if marker == pypi_marker and pypi_prefix.rstrip("/").endswith("/packages") and suffix.startswith("packages/"):
+            suffix = suffix[len("packages/"):]
         line = line[:url_start] + prefix + suffix + line[url_end:]
     rewritten.append(line)
 path.write_text("".join(rewritten), encoding="utf-8")

@@ -63,6 +63,52 @@ frontend_dist_ready() {
   return 0
 }
 
+frontend_build_dependencies_ready() {
+  [[ -f "$REPO_DIR/frontend/package.json" ]] || return 1
+  [[ -d "$REPO_DIR/frontend/node_modules" ]] || return 1
+
+  if [[ -f "$REPO_DIR/frontend/pnpm-lock.yaml" ]]; then
+    [[ -f "$REPO_DIR/frontend/node_modules/.pnpm/lock.yaml" ]] || return 1
+    [[ ! "$REPO_DIR/frontend/pnpm-lock.yaml" -nt "$REPO_DIR/frontend/node_modules/.pnpm/lock.yaml" ]] || return 1
+    have pnpm
+  else
+    if [[ -f "$REPO_DIR/frontend/package-lock.json" ]]; then
+      [[ -f "$REPO_DIR/frontend/node_modules/.package-lock.json" ]] || return 1
+      [[ ! "$REPO_DIR/frontend/package-lock.json" -nt "$REPO_DIR/frontend/node_modules/.package-lock.json" ]] || return 1
+    fi
+    npm_bin >/dev/null
+  fi
+}
+
+build_frontend_assets() {
+  if [[ -f "$REPO_DIR/frontend/pnpm-lock.yaml" ]]; then
+    (cd "$REPO_DIR/frontend" && pnpm run build)
+  else
+    local npm
+    npm="$(npm_bin)" || return 1
+    (cd "$REPO_DIR/frontend" && "$npm" run build)
+  fi
+}
+
+ensure_frontend_assets() {
+  frontend_dist_ready && return 0
+
+  if frontend_build_dependencies_ready; then
+    log "frontend sources are newer than runtime assets; rebuilding locally"
+    build_frontend_assets || die "frontend build failed"
+  else
+    is_truthy "$OVERSEAARK_AUTO_BOOTSTRAP" || \
+      die "frontend build dependencies are incomplete and OVERSEAARK_AUTO_BOOTSTRAP=0"
+    is_truthy "$OVERSEAARK_ENABLE_NETWORK_BOOTSTRAP" || \
+      die "frontend build dependencies are incomplete and network bootstrap is disabled"
+    [[ -f "$bootstrap_script" ]] || die "bootstrap script not found: $bootstrap_script"
+    log "frontend build dependencies are incomplete; running resumable bootstrap"
+    OVERSEAARK_SKIP_MODELS=1 OVERSEAARK_OPERATION_LOCK_HELD=1 bash "$bootstrap_script"
+  fi
+
+  frontend_dist_ready || die "frontend build completed without fresh runtime assets"
+}
+
 command_program() {
   local command="$1"
   local program
@@ -91,7 +137,7 @@ runtime_dependencies_ready() {
   if [[ -f "$REPO_DIR/backend/app/main.py" ]]; then
     (cd "$REPO_DIR/backend" && "$py" -c 'import app, fastapi, multipart, pydantic, uvicorn') >/dev/null 2>&1 || return 1
   fi
-  frontend_dist_ready || return 1
+  [[ -f "$REPO_DIR/runtime/frontend-dist/index.html" ]] || return 1
 
   if [[ "$OVERSEAARK_ADAPTER_MODE" != "command" ]]; then
     return 0
@@ -245,6 +291,7 @@ start_all() {
   acquire_operation_lock bootstrap
   trap release_operation_lock EXIT
   ensure_runtime_dependencies
+  ensure_frontend_assets
   ensure_models
   local backend
   backend="$(backend_cmd)"
