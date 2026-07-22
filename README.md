@@ -1,95 +1,55 @@
 # DGX Spark一支不下班的本地多模态外贸营销团队
 
-OverseaArk is a local-first multimodal campaign workbench for cross-border sellers on NVIDIA DGX Spark. The repository is a single monorepo: FastAPI backend, Vite TypeScript frontend, local model adapters, lifecycle scripts, tests, and the pinned model manifest all live here. There is no Docker path and no cloud inference path.
+[English](README.en.md)
 
-The implemented demo flow accepts one product image and product description, runs six serialized stages, exposes each stage's process artifacts as soon as they are persisted, and exports either a complete multilingual ZIP or a ZIP scoped to the currently selected output language.
+出海方舟 OverseaArk 是面向外贸企业、跨境卖家和代运营团队的本地优先多模态营销工作台。项目运行目标是 NVIDIA DGX Spark：FastAPI 后端、Vite TypeScript 前端、本地模型 adapter、生命周期脚本、测试和固定模型清单都在同一个仓库中。当前实现没有 Docker 路径，也没有云端推理路径。
 
-The web workbench includes a **Fill demo / 一键填入示例** action. It loads a repository-owned product image and complete localized product brief into the existing upload and campaign form, so a live demonstration only needs one review click followed by **Create campaign / 创建活动**.
+演示流程只需要一张商品图和一段商品描述。系统按六个串行阶段生成市场定位、买家画像、中英日文案、产品海报、三语配音、480p 短视频、质量报告和 ZIP 交付包。每个阶段的过程产物一旦持久化就会出现在页面中；最终可导出完整多语言 ZIP，也可导出当前语言的单语言 ZIP。
 
-## Current Status
+网页工作台提供 **一键填入示例 / Fill demo**。它会把仓库内置商品图和完整本地化商品简报填入上传区和 Campaign 表单，现场演示时只需检查内容并点击 **创建活动 / Create campaign**。
 
-- Implemented: root one-command lifecycle, FastAPI API, built frontend mounted by FastAPI, SQLite campaign/event store, multipart uploads, six campaign stages, resumable SSE progress, localized and per-stage artifact previews, rerun, cancel, complete/per-language export, a Simplified Chinese default UI with a persistent English switch, one-click demo input, mock mode, command adapter mode, model verification/sync, native vLLM LLM runtime, resident ASR/TTS workers, and process-group cleanup for timed-out adapters.
-- Implemented command adapters: Qwen3.6 LLM/VLM through localhost native vLLM, Step1X image generation, Cosmos3-Edge video generation, Nemotron ASR, and Magpie TTS.
-- Implemented safety boundary: localhost-only serving, no remote model command URLs, offline Hugging Face runtime flags, serialized inference calls, and a safe-warm model policy that keeps ASR/TTS ready while loading the larger visual runtime only when needed.
-- Not implemented: Docker, ComfyUI, OpenClaw, Ollama, StepFun cloud APIs, NVIDIA hosted inference APIs, or public service binding.
-- DGX E2E evidence: native vLLM run 9 completed all six stages on first attempts in `580.147s` (9m40s). The deployed safe-warm build then completed campaign `95e8efa8-7dbd-4285-b05a-8db54429d340` in `451.296s` (7m31s), again with every stage succeeding on its first attempt. Its zh/en/ja ASR similarities were `0.8333`/`1.0`/`0.88`; the complete and three scoped ZIPs passed integrity and language-isolation checks. A follow-up cancellation test terminated an active TTS worker and automatically restored it with a new PID and incremented start count. Run 8 remains truthful negative evidence for the mixed-script narration defect. The stricter requirement for three consecutive qualifying current-build runs remains open.
+## 当前状态
 
-## 项目报告书
+- 已实现：根目录一键生命周期命令、FastAPI API、由 FastAPI 挂载的构建后前端、SQLite Campaign/Event 存储、multipart 上传、六阶段流水线、可恢复 SSE 进度、本地化输出和阶段产物预览、重跑、取消、完整/单语言导出、默认简体中文界面和持久 English 切换、前端 i18n、一键示例输入、mock 模式、command adapter 模式、模型校验/同步、native vLLM LLM 运行时、常驻 ASR/TTS worker，以及超时 adapter 的进程组清理。
+- 已实现 command adapter：Qwen3.6 LLM/VLM 通过 localhost native vLLM 调用，Step1X 生成图片，Cosmos3-Edge 生成视频，Nemotron ASR 做语音识别，Magpie TTS 做语音合成。
+- 已实现安全边界：只监听 localhost，不接受远程模型命令 URL，推理运行时设置 Hugging Face 离线标志，模型调用串行化，采用 safe-warm 策略让 ASR/TTS 保持就绪，并仅在需要时加载更大的视觉运行时。
+- 未实现：Docker、ComfyUI、OpenClaw、Ollama、StepFun 云 API、NVIDIA hosted inference API 或公开服务绑定。
+- DGX E2E 证据：native vLLM Run9 六阶段全部一次成功，用时 `580.147s`（9m40s）。部署 safe-warm 版本后，UQ-14 Campaign `95e8efa8-7dbd-4285-b05a-8db54429d340` 用时 `451.296s`（7m31s），六阶段同样全部一次成功；中/英/日 ASR 相似度为 `0.8333`/`1.0`/`0.88`，完整 ZIP 和三个单语言 ZIP 通过完整性与语言隔离检查。UQ-15 在真实 TTS 执行中取消任务，旧 TTS worker 被终止，随后以新 PID 自动恢复且启动计数递增。Run8 仍作为混合脚本口播缺陷的真实负面证据保留。当前构建下“三轮连续合格运行”的更严格验收标准仍未完成。
 
-### 项目概述、目标与背景
+## DGX Spark 快速启动
 
-出海方舟 OverseaArk 是面向中小外贸企业、跨境卖家和代运营团队的本地多模态营销工作台。传统外贸素材制作通常分散在市场调研、翻译、海报、配音、视频和质检等多个工具中，产品图、工艺信息与未发布卖点还可能在不同云服务之间流转。项目的目标是在一台 NVIDIA DGX Spark 上把这些步骤收敛成可重复、可恢复、可审计的本地流水线：用户只需提交一张产品图和产品描述，系统便生成中英日文案、产品海报、三语配音、480p 短视频、质量报告和完整 ZIP。服务只监听 localhost，推理阶段关闭 Hugging Face 与 Transformers 在线访问，不把产品资料发送到云端模型。
-
-### 作品介绍与核心亮点
-
-产品把交付流程固定为市场定位、买家画像、多语文案、视觉设计、音视频制作、质量与打包六个阶段。前端默认显示简体中文，可一键切换为 English，并把界面语言保存在浏览器中；“一键填入示例”会补齐商品图、描述、目标市场和中英日输出选项。运行时通过 SSE 显示递增事件序号，刷新页面后可以恢复；每个已持久化的阶段结果会立即出现在“阶段过程产物”中，海报、语音、视频和质检可直接预览。后端把 Campaign、Stage、重试和产物记录在 SQLite 与本地目录中。单阶段失败会自动重试一次，第二次仍失败则如实标记为 `partial`，同时保留此前成功产物。Cosmos 失败时可以生成明确标记的降级视频，但不会冒充真模型结果。完整 ZIP 按 `shared/` 和该 Campaign 所请求的 `zh/`、`en/`、`ja/` 语言目录组织，也可只导出当前语言；清单记录模型 ID、revision、许可证、阶段尝试次数和调用记录。
-
-核心体验是一键脚本。`./overseaark start` 会自动检查系统、补齐 Python/Node 依赖、构建前端、安装隔离的 native vLLM 环境、校验模型清单、删除损坏分片、断点下载缺失文件、启动本地服务并等待健康检查。它不依赖 Docker、ComfyUI 或云端推理控制台；运维、日志、模型同步、诊断、测试和 benchmark 都由同一个根命令管理。模型和用户数据分别保存在仓库外的 `/home/Developer/overseaark-models` 与 `/home/Developer/overseaark-data`，代码仓库不会混入权重、数据库、凭据或生成素材。
-
-### 技术方案、架构与创新点
-
-后端采用 FastAPI、Pydantic、SQLite 和本地文件系统，前端采用 Vite、TypeScript 和 SSE。Qwen3.6、Step1X、Cosmos、Magpie 与 Nemotron 都通过显式 adapter 接口接入，`ModelManager` 用单一异步锁串行推理调用。默认的 safe-warm 策略让 Nemotron ASR 与 Magpie TTS 常驻，在活动间隔预热 vLLM，进入 Step1X/Cosmos 视觉阶段前释放 vLLM；Step1X 只在实测统一内存余量足够时才可选常驻，Cosmos 始终按需启动。每个非常驻命令 adapter 运行在独立进程组中，超时或取消会终止完整进程组，防止残留 CUDA context。上传不仅检查 MIME，还检查图片和音频容器签名；导出前会解析真实路径并拒绝符号链接越界，从而阻止恶意 adapter 把 Campaign 目录外的文件打进 ZIP。
-
-技术创新不只在模型组合，而在“生成—回听—判定—保留证据”的闭环。MagpieTTS 生成中英日音频后，Nemotron ASR 重新转写并计算规范化相似度；低于 `0.75` 时只重做失败语言。Run8 因中文口播中的拉丁缩写而被如实保留为 `partial`，随后生成规则改为使用可直接发音的本地语言，Run9 三种语言均一次通过。这种失败可见、产物可追溯的设计比隐藏错误或静默切换模型更适合真实业务和赛事复现。
-
-### NVIDIA 与 StepFun 技术栈
-
-主模型为 NVIDIA 优化的 `nvidia/Qwen3.6-35B-A3B-NVFP4`，固定 revision 后由 native vLLM 0.25.1 在 `127.0.0.1:8011` 提供 OpenAI-compatible 接口。运行时启用 FP8 KV cache、FlashInfer attention、Marlin MoE、chunked prefill、prefix caching 和 MTP speculative decoding。视觉编辑使用 StepFun `Step1X-Edit-v1p2` FP8 权重；图生视频使用 NVIDIA Cosmos3-Edge 与 Cosmos Framework；语音识别使用 NVIDIA Nemotron 3.5 ASR Streaming 0.6B；语音合成使用 NVIDIA NeMo MagpieTTS Multilingual 357M 和 Nano Codec。所有 CUDA 重任务都在 DGX Spark 本地执行，ffmpeg 只负责字幕、音频和 MP4 封装。
-
-### 实机结果与优化过程
-
-native vLLM Run9 六阶段全部一次成功，端到端用时 `580.147s`。部署 safe-warm 版本后，UQ-14 真机 Campaign 又以 `451.296s` 完成，六阶段同样全部一次成功；中、英、日 TTS 回听相似度分别为 `0.8333`、`1.0`、`0.88`，完整 ZIP 与三个单语言 ZIP 均通过完整性和语言隔离检查。随后从音视频阶段重跑并在真实 TTS 请求中取消：旧 TTS PID 被终止，新进程自动恢复，启动计数从 `1` 增至 `2`，ASR 进程保持不变，服务未出现 OOM 或 CUDA 错误。优化过程包括把 Step1X 演示默认值从 8 步调整到经独立基准验证的 6 步、将 FlashInfer 首次 JIT 编译并行度限制为 1 以避免统一内存 OOM、让中文和日文视频脚本避免不可直接发音的拉丁缩写，以及在视觉阶段前卸载 vLLM。完整本地回归由 `./overseaark test` 统一执行后端、前端、生命周期、HTTP Mock E2E 和安全用例；具体用例数以当次测试输出为准。
-
-### 团队分工与贡献
-
-公开仓库按职责记录贡献，不在源代码中披露成员住址、照片等个人信息：产品与内容职责负责 PRD、六阶段交付合同和赛事报告；前端职责负责 Campaign 创建、SSE 进度、恢复、重跑和导出体验；后端职责负责 API、状态机、SQLite、ModelManager 与安全边界；模型工程职责负责 vLLM、Step1X、Cosmos、Nemotron、Magpie 的 DGX Spark 适配和模型清单；质量与交付职责负责 UltraQA 对抗场景、实机 E2E、OBS 演示录制、CapCut CLI 剪辑和公开文档。真实团队名称、成员名单和合影仅在赛事提交表中填写，避免把个人资料永久写入公开 Git 历史。
-
-### 未来展望
-
-下一步首先补齐同一当前构建下的三轮连续 native vLLM 十分钟内实测，满足 PRD 的严格验收；同时持续验证 ASR/TTS 常驻进程在连续活动中的内存稳定性，并只在 119 GiB 统一内存余量充分时评估 Step1X 常驻。产品层面会加入可编辑品牌模板、人工审核节点、Campaign 对比和离线素材版本管理；工程层面会继续压缩冷启动、增加模型缓存可视化和内核级离线网络审计。所有扩展仍会坚持 localhost、显式模型版本、失败不伪装和用户数据可完全删除的原则。
-
-## Repository Layout
-
-```text
-backend/                  FastAPI service, Pydantic models, SQLite store, tests
-frontend/                 Vite TypeScript workbench
-runtime/frontend-dist/    Ignored production frontend build served by FastAPI
-scripts/                  Lifecycle scripts and model adapter scripts
-tests/e2e/                Mock HTTP E2E contract and one-click lifecycle tests
-model-manifest.lock.json  Pinned model sources, revisions, file sizes, hashes
-docs/                     Architecture, deployment, competition, model docs
-```
-
-Runtime data is outside source by default:
-
-```text
-/home/Developer/overseaark-models  model weights
-/home/Developer/overseaark-data    SQLite, uploads, artifacts, logs, pid files
-```
-
-## One-command Start
-
-DGX Spark command mode:
+### 1. 启动真实本地模型模式
 
 ```bash
 ./overseaark start
 ```
 
-Developer/mock mode without GPU model assets:
+`start` 是幂等命令。它会检查系统、补齐 Python/Node 依赖、构建前端、安装固定 native vLLM ARM64 CUDA wheel、校验锁定模型文件、删除损坏分片、断点下载缺失文件、在 `127.0.0.1:8011` 启动本地 vLLM、启动 FastAPI，并等待 `/api/v1/health` 健康检查。ASR/TTS 预热随后在后端异步继续，不会阻塞网页可用性。
+
+启动后访问：
+
+- 应用：`http://127.0.0.1:8000`
+- 健康检查：`http://127.0.0.1:8000/api/v1/health`
+- OpenAPI：`http://127.0.0.1:8000/docs`
+
+查看模型预热状态：
+
+```bash
+curl -sS http://127.0.0.1:8000/api/v1/health
+curl -sS http://127.0.0.1:8000/api/v1/models
+```
+
+`/api/v1/health` 中的 `model_status` 和 `/api/v1/models` 中的 `residency.warmup` 会显示 `pending`、`warming`、`ready`、`degraded` 或 `cancelled`。
+
+### 2. 无 GPU/无模型的开发 mock 模式
 
 ```bash
 OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark start
 ```
 
-`start` is idempotent. It bootstraps missing dependencies, builds the frontend, installs the pinned native vLLM ARM64 CUDA wheel when needed, verifies locked model files, downloads only missing or invalid files, starts local vLLM at `127.0.0.1:8011`, starts FastAPI, and waits for `/api/v1/health`. ASR/TTS warmup then continues in the backend without making the site unavailable; inspect `model_status` in `/api/v1/health` and `residency.warmup` in `/api/v1/models` for `warming`, `ready`, or `degraded`.
+这个模式用于本地开发和 HTTP 契约演练，不下载或加载大模型。
 
-Use these endpoints after startup:
-
-- App: `http://127.0.0.1:8000`
-- Health: `http://127.0.0.1:8000/api/v1/health`
-- OpenAPI: `http://127.0.0.1:8000/docs`
-
-Useful lifecycle commands:
+### 3. 常用生命周期命令
 
 ```bash
 ./overseaark status
@@ -100,57 +60,111 @@ Useful lifecycle commands:
 ./overseaark stop
 ```
 
-### GPU usage
+## 仓库结构
 
-Run these commands in the DGX Spark SSH terminal while a campaign is active:
-
-```bash
-# One-time snapshot
-nvidia-smi
-
-# Live utilization, power, clocks, temperature, and PCIe activity
-nvidia-smi dmon -s pucvmet
+```text
+backend/                  FastAPI 服务、Pydantic 模型、SQLite 存储和后端测试
+frontend/                 Vite TypeScript 工作台
+runtime/frontend-dist/    被 git 忽略的前端生产构建，由 FastAPI 提供
+scripts/                  生命周期脚本和模型 adapter 脚本
+tests/e2e/                Mock HTTP E2E 契约和一键生命周期测试
+model-manifest.lock.json  固定模型来源、revision、文件大小和哈希
+docs/                     架构、部署、赛事和模型文档
 ```
 
-The web page also has an expandable **在哪里查看 GPU 使用情况？ / Where can I view GPU usage?** guide with these commands. It is an operator guide, not an embedded metrics dashboard: the live numbers remain in the SSH terminal.
+默认运行时数据保存在仓库外：
 
-When the background monitor used for the live demo is running, its output is available at:
-
-```bash
-tail -f /home/Developer/overseaark-data/logs/gpu-dmon.log
+```text
+/home/Developer/overseaark-models  模型权重
+/home/Developer/overseaark-data    SQLite、上传文件、产物、日志和 pid 文件
 ```
 
-DGX Spark uses unified CPU/GPU memory. Some per-process memory columns can therefore appear as `N/A` or `Not Supported` in `nvidia-smi`; use `free -h` alongside it to inspect total unified-memory pressure.
+模型和用户数据不应提交到代码仓库。
 
-## Configuration
+## 项目报告
 
-Copy `.env.example` only when the defaults need changing:
+### 项目概述、目标与背景
+
+外贸营销素材制作通常分散在市场调研、翻译、海报、配音、视频和质检等工具中，产品图、工艺信息和未发布卖点还可能在不同云服务之间流转。OverseaArk 的目标是在一台 DGX Spark 上把这些步骤收敛为可重复、可恢复、可审计的本地流水线：用户提交一张产品图和描述后，系统生成中英日交付素材和完整归档包。服务只监听 localhost，推理阶段关闭 Hugging Face 与 Transformers 在线访问，不把产品资料发送到云端模型。
+
+### 核心体验
+
+流水线固定为六个阶段：
+
+1. `market_positioning`：Qwen3.6 生成市场定位和卖点假设。
+2. `buyer_persona`：Qwen3.6 生成买家画像和决策触发点。
+3. `multilingual_copy`：Qwen3.6 生成 `zh`、`en`、`ja` 文案。
+4. `visual_design`：Step1X 生成 `visual_design.png`，生成后叠加排版。
+5. `media_production`：Magpie TTS 生成 `voice_<language>.wav`；Cosmos3-Edge 从海报生成 480p 视频；ffmpeg 合成配音、字幕和 MP4。
+6. `quality_packaging`：Nemotron ASR 回听 TTS，按 `0.75` 相似度阈值质检；失败语言会重试一次 TTS；随后写出 ZIP。
+
+前端默认显示简体中文，可切换到 English，并把界面语言保存在浏览器中。Campaign 运行时通过 SSE 显示递增事件序号，刷新后可以恢复；“本地化输出”只显示当前选择语言的文案和配音，“阶段过程产物”按六个阶段展示所有已持久化中间结果。单阶段失败会自动重试一次，第二次仍失败则如实标记为 `partial`，并保留此前成功产物。Cosmos 失败时可以生成明确标记的降级视频，但不会冒充真实模型结果。
+
+### 技术方案
+
+后端使用 FastAPI、Pydantic、SQLite 和本地文件系统；前端使用 Vite、TypeScript 和 SSE。Qwen3.6、Step1X、Cosmos、Magpie 和 Nemotron 通过显式 adapter 接口接入，`ModelManager` 使用单一异步锁串行推理调用。
+
+默认 safe-warm 策略如下：
+
+- Nemotron ASR 与 Magpie TTS 常驻。
+- vLLM 在 Campaign 间隔预热，进入 Step1X/Cosmos 视觉阶段前释放。
+- Step1X 仅在实测统一内存余量足够时才可选常驻。
+- Cosmos 始终按需启动。
+- 非常驻命令 adapter 运行在独立进程组中，超时或取消会终止完整进程组，避免残留 CUDA context。
+
+上传不仅检查 MIME，还检查图片和音频容器签名。导出前会解析真实路径并拒绝符号链接越界，防止恶意 adapter 把 Campaign 目录外的文件打进 ZIP。
+
+### NVIDIA 与 StepFun 技术栈
+
+主模型为 NVIDIA 优化的 `nvidia/Qwen3.6-35B-A3B-NVFP4`，固定 revision 后由 native vLLM `0.25.1` 在 `127.0.0.1:8011` 提供 OpenAI-compatible 接口。运行时启用 FP8 KV cache、FlashInfer attention、Marlin MoE、chunked prefill、prefix caching 和 MTP speculative decoding。
+
+视觉编辑使用 StepFun `Step1X-Edit-v1p2` FP8 权重；图生视频使用 NVIDIA Cosmos3-Edge 与 Cosmos Framework；语音识别使用 NVIDIA Nemotron 3.5 ASR Streaming 0.6B；语音合成使用 NVIDIA NeMo MagpieTTS Multilingual 357M 和 Nano Codec。所有 CUDA 重任务都在 DGX Spark 本地执行，ffmpeg 只负责字幕、音频和 MP4 封装。
+
+### 实机结果与优化过程
+
+native vLLM Run9 六阶段全部一次成功，端到端用时 `580.147s`。部署 safe-warm 版本后，UQ-14 真实 Campaign 用时 `451.296s`，六阶段同样全部一次成功；中、英、日 TTS 回听相似度分别为 `0.8333`、`1.0`、`0.88`，完整 ZIP 与三个单语言 ZIP 均通过完整性和语言隔离检查。
+
+UQ-15 从音视频阶段重跑并在真实 TTS 请求中取消：旧 TTS PID 被终止，新进程自动恢复，启动计数从 `1` 增至 `2`，ASR 进程保持不变，服务未出现 OOM 或 CUDA 错误。优化过程包括把 Step1X 演示默认值从 8 步调整到经独立基准验证的 6 步、将 FlashInfer 首次 JIT 编译并行度限制为 1 以避免统一内存 OOM、让中文和日文视频脚本避免不可直接发音的拉丁缩写，以及在视觉阶段前卸载 vLLM。完整本地回归由 `./overseaark test` 统一执行后端、前端、生命周期、HTTP Mock E2E 和安全用例；具体用例数以当次测试输出为准。
+
+### 团队分工与贡献
+
+- 队长陈荣杰负责项目和技术的实施。
+- 队员陈郑超负责产品与设计。
+- 队员黄冬梅负责全流程质量把控。
+
+### 未来展望
+
+下一步首先补齐同一当前构建下的三轮连续 native vLLM 十分钟内实测，满足 PRD 的严格验收；同时持续验证 ASR/TTS 常驻进程在连续 Campaign 中的内存稳定性，并只在 119 GiB 统一内存余量充分时评估 Step1X 常驻。产品层面会加入可编辑品牌模板、人工审核节点、Campaign 对比和离线素材版本管理；工程层面会继续压缩冷启动、增加模型缓存可视化和内核级离线网络审计。所有扩展仍坚持 localhost、显式模型版本、失败不伪装和用户数据可完全删除。
+
+## 配置
+
+只有在需要修改默认值时才复制 `.env.example`：
 
 ```bash
 cp .env.example .env
 ```
 
-Important defaults:
+重要默认值：
 
-| Variable | Default | Purpose |
+| 变量 | 默认值 | 用途 |
 | --- | --- | --- |
-| `OVERSEAARK_HOST` | `127.0.0.1` | Localhost-only bind. |
-| `OVERSEAARK_BACKEND_PORT` | `8000` | FastAPI API and frontend. |
-| `OVERSEAARK_MODELS_DIR` | `/home/Developer/overseaark-models` | External model cache. |
-| `OVERSEAARK_DATA_DIR` | `/home/Developer/overseaark-data` | SQLite, uploads, artifacts, logs. |
-| `OVERSEAARK_ADAPTER_MODE` | `command` | Real local adapters on DGX. |
-| `OVERSEAARK_AUTO_BOOTSTRAP` | `1` | Repair missing dependencies during `start`. |
-| `OVERSEAARK_AUTO_DOWNLOAD_MODELS` | `1` | Repair missing/corrupt locked models during `start`. |
-| `OVERSEAARK_RESIDENT_ADAPTERS` | `asr,tts` | Comma-separated resident workers; optionally add `image` only after checking memory headroom. |
-| `OVERSEAARK_KEEP_VLLM_RESIDENT` | `0` | Keep disabled for the safe profile; vLLM is prewarmed between campaigns and released before visual work. |
-| `OVERSEAARK_STEP1X_STEPS` | `6` | DGX-measured demo default; increase for final-production image refinement. |
-| `OVERSEAARK_COSMOS_STEPS` | `28` | Default Cosmos3-Edge inference steps. |
-| `OVERSEAARK_VLLM_ENV_DIR` | `.venv-vllm` | Isolated native vLLM environment. |
-| `OVERSEAARK_VLLM_PORT` | `8011` | Local OpenAI-compatible Qwen endpoint. |
-| `OVERSEAARK_VLLM_GPU_MEMORY_UTILIZATION` | `0.4` | DGX Spark vLLM memory budget. |
-| `OVERSEAARK_VLLM_MAX_MODEL_LEN` | `262144` | DGX Spark context length for Qwen3.6. |
+| `OVERSEAARK_HOST` | `127.0.0.1` | 只绑定 localhost。 |
+| `OVERSEAARK_BACKEND_PORT` | `8000` | FastAPI API 和前端页面。 |
+| `OVERSEAARK_MODELS_DIR` | `/home/Developer/overseaark-models` | 仓库外模型缓存。 |
+| `OVERSEAARK_DATA_DIR` | `/home/Developer/overseaark-data` | SQLite、上传文件、产物和日志。 |
+| `OVERSEAARK_ADAPTER_MODE` | `command` | DGX 上的真实本地 adapter。 |
+| `OVERSEAARK_AUTO_BOOTSTRAP` | `1` | `start` 时自动修复缺失依赖。 |
+| `OVERSEAARK_AUTO_DOWNLOAD_MODELS` | `1` | `start` 时自动修复缺失或损坏的锁定模型文件。 |
+| `OVERSEAARK_RESIDENT_ADAPTERS` | `asr,tts` | 常驻 worker 列表；只有确认内存余量后才考虑追加 `image`。 |
+| `OVERSEAARK_KEEP_VLLM_RESIDENT` | `0` | safe profile 下保持关闭；vLLM 在 Campaign 间隔预热，并在视觉阶段前释放。 |
+| `OVERSEAARK_STEP1X_STEPS` | `6` | DGX 实测演示默认值；正式精修图片可调高。 |
+| `OVERSEAARK_COSMOS_STEPS` | `28` | Cosmos3-Edge 默认推理步数。 |
+| `OVERSEAARK_VLLM_ENV_DIR` | `.venv-vllm` | 隔离 native vLLM 环境。 |
+| `OVERSEAARK_VLLM_PORT` | `8011` | 本地 OpenAI-compatible Qwen endpoint。 |
+| `OVERSEAARK_VLLM_GPU_MEMORY_UTILIZATION` | `0.4` | DGX Spark vLLM 显存预算。 |
+| `OVERSEAARK_VLLM_MAX_MODEL_LEN` | `262144` | DGX Spark 上的 Qwen3.6 上下文长度。 |
 
-Mainland-network defaults use TUNA and mirrors while keeping locked hashes authoritative:
+中国大陆网络默认使用 TUNA 和镜像，同时仍以锁定哈希为准：
 
 ```bash
 MODELSCOPE_ENDPOINT=https://modelscope.cn
@@ -162,55 +176,39 @@ OVERSEAARK_GITHUB_GIT_PREFIX=https://gh-proxy.com/https://github.com/
 OVERSEAARK_GITHUB_ASSET_PREFIX=https://ghfast.top/
 ```
 
-Set an empty mirror prefix to use upstream URLs directly.
+把镜像前缀设为空字符串即可直接使用上游 URL。
 
-## Model Stack
+## 模型栈
 
-`model-manifest.lock.json` is the source of truth. Required locked files total 81,211,096,221 bytes (about 75.6 GiB). With optional Cosmos-Predict2 synced, the manifest totals 85,535,325,812 bytes. The primary Qwen NVFP4 model files total about 23.45 GB.
+`model-manifest.lock.json` 是模型来源和文件校验的事实源。必需锁定文件总量为 81,211,096,221 字节（约 75.6 GiB）。如果同步可选 Cosmos-Predict2，清单总量为 85,535,325,812 字节。主 Qwen NVFP4 模型文件约 23.45 GB。
 
-Do not interpret the 119 GiB unified memory shown by the DGX Spark as room to keep every model loaded simultaneously. The required raw model files alone total about 75.6 GiB, before accounting for vLLM KV cache, CUDA contexts, decoded weights, Step1X/Cosmos activations, video buffers, the OS, and filesystem cache. Those runtime allocations are workload-dependent and can overlap during a transition, so an all-resident profile has little safe OOM margin. The supported default is **safe-warm**: ASR/TTS resident, Step1X optional resident after measurement, vLLM prewarmed between campaigns but released before visual stages, and Cosmos loaded on demand.
+不要把 DGX Spark 显示的 119 GiB 统一内存理解为可以同时常驻所有模型。必需原始模型文件本身约 75.6 GiB，还未计算 vLLM KV cache、CUDA context、解码权重、Step1X/Cosmos activation、视频缓冲、操作系统和文件系统缓存。默认支持策略是 **safe-warm**：ASR/TTS 常驻，Step1X 经测量后可选常驻，vLLM 在 Campaign 间隔预热但在视觉阶段前释放，Cosmos 按需加载。
 
-| Role | Manifest id | Source | Revision | Local directory | Required | License |
+| 角色 | Manifest id | 来源 | Revision | 本地目录 | 必需 | License |
 | --- | --- | --- | --- | --- | --- | --- |
-| LLM/VLM | `qwen3.6-35b-a3b-nvfp4` | `nvidia/Qwen3.6-35B-A3B-NVFP4` from Hugging Face mirror | `491c2f1ea524c639598bf8fa787a93fed5a6fbce` | `nvidia/qwen3.6-35b-a3b-nvfp4` | yes | Apache-2.0 |
-| Image | `step1x-edit-v1p2` | `stepfun-ai/Step1X-Edit-v1p2` from Hugging Face mirror | `ca85b97fd19f2235dc0d6fd3633d1319f169e149` | `stepfun/step1x-edit-v1p2` | yes | Apache-2.0 |
-| Optional T2I | `cosmos-predict2-0.6b-text2image` | `nv-community/Cosmos-Predict2-0.6B-Text2Image` ModelScope mirror of NVIDIA upstream | `master`, upstream `dd55b6858b22ad569976bff207880b8fea839da7` | `nvidia/cosmos-predict2-0.6b-text2image` | no | NVIDIA Open Model License |
-| Video | `cosmos3-edge` | `nv-community/Cosmos3-Edge` ModelScope mirror of NVIDIA upstream | `master`, upstream `6f58f6b4c91288838e60b6bcb2cc45d997e961de` | `nvidia/cosmos3-edge` | yes | NVIDIA Open Model Development Weight License 1.1 |
-| Video VAE | `wan2.2-vae-cosmos3` | `Wan-AI/Wan2.2-TI2V-5B` from ModelScope | `master`, upstream `921dbaf3f1674a56f47e83fb80a34bac8a8f203e` | `wan/wan2.2-vae` | yes | Apache-2.0 |
+| LLM/VLM | `qwen3.6-35b-a3b-nvfp4` | Hugging Face mirror 上的 `nvidia/Qwen3.6-35B-A3B-NVFP4` | `491c2f1ea524c639598bf8fa787a93fed5a6fbce` | `nvidia/qwen3.6-35b-a3b-nvfp4` | yes | Apache-2.0 |
+| Image | `step1x-edit-v1p2` | Hugging Face mirror 上的 `stepfun-ai/Step1X-Edit-v1p2` | `ca85b97fd19f2235dc0d6fd3633d1319f169e149` | `stepfun/step1x-edit-v1p2` | yes | Apache-2.0 |
+| Optional T2I | `cosmos-predict2-0.6b-text2image` | `nv-community/Cosmos-Predict2-0.6B-Text2Image`，NVIDIA upstream 的 ModelScope mirror | `master`，upstream `dd55b6858b22ad569976bff207880b8fea839da7` | `nvidia/cosmos-predict2-0.6b-text2image` | no | NVIDIA Open Model License |
+| Video | `cosmos3-edge` | `nv-community/Cosmos3-Edge`，NVIDIA upstream 的 ModelScope mirror | `master`，upstream `6f58f6b4c91288838e60b6bcb2cc45d997e961de` | `nvidia/cosmos3-edge` | yes | NVIDIA Open Model Development Weight License 1.1 |
+| Video VAE | `wan2.2-vae-cosmos3` | ModelScope 上的 `Wan-AI/Wan2.2-TI2V-5B` | `master`，upstream `921dbaf3f1674a56f47e83fb80a34bac8a8f203e` | `wan/wan2.2-vae` | yes | Apache-2.0 |
 | ASR | `nemotron-asr-streaming-0.6b` | `nvidia/nemotron-3.5-asr-streaming-0.6b` | `f3d333391852ba876df169dcc9ba902d25b6ab0b` | `nvidia/nemotron-3.5-asr-streaming-0.6b` | yes | NVIDIA Open Model Development Weight License 1.1 |
 | TTS codec | `nemo-nano-codec-22khz-1.89kbps-21.5fps` | `nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps` | `3c482a402a3c4cf33690a2c0f0a7d41afea6bd6a` | `nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps` | yes | NVIDIA Open Model License |
 | TTS | `magpie-tts-multilingual-357m` | `nvidia/magpie_tts_multilingual_357m` | `34d7e40da85cabc97f92198889b65cea27bc7fd1` | `nvidia/magpie_tts_multilingual_357m` | yes | NVIDIA Open Model License |
 | TTS tokenizer | `byt5-small-tokenizer` | `google/byt5-small` | `68377bdc18a2ffec8a0533fef03b1c513a4dd49d` | `google/byt5-small` | yes | Apache-2.0 |
 
-Pinned framework commits:
+固定框架版本：
 
-| Component | Commit |
+| 组件 | 固定版本/Commit |
 | --- | --- |
-| native vLLM ARM64 CUDA wheel | `vLLM 0.25.1`, wheel SHA-256 `bdffbe35b2c1ab8f2a9dcc337b657261d9b192c92c217e5a2f98a8835fe78daa` |
+| native vLLM ARM64 CUDA wheel | `vLLM 0.25.1`，wheel SHA-256 `bdffbe35b2c1ab8f2a9dcc337b657261d9b192c92c217e5a2f98a8835fe78daa` |
 | Peyton-Chen/diffusers `step1xedit_v1p2` | `f5f1c98fa00cb4d0479af1b1b1c17d724345963a` |
 | NVIDIA/cosmos-framework | `ed8287fd7477113f8ac4f6b84290514d55cf0cdc` |
 | NVIDIA-NeMo/NeMo for ASR | `93b15b1f423ddc8e0d189810fdd8304091d9b1bd` |
 | NeMo TTS environment | `nemo_toolkit[tts]==2.7.3` |
 
-## Pipeline
+## 导出格式
 
-The backend runs one retry per stage:
-
-1. `market_positioning`: Qwen3.6 produces positioning and market hypotheses.
-2. `buyer_persona`: Qwen3.6 produces personas and decision triggers.
-3. `multilingual_copy`: Qwen3.6 produces `zh`, `en`, and `ja` copy.
-4. `visual_design`: Step1X generates `visual_design.png`; typography overlay is added after generation.
-5. `media_production`: Magpie TTS generates `voice_<language>.wav`; Cosmos3-Edge generates 480p video from the poster; ffmpeg composes narration and subtitles.
-6. `quality_packaging`: Nemotron ASR checks TTS round-trip similarity against threshold `0.75`; one TTS retry is attempted for a failing language; zip export is written.
-
-`ModelManager` serializes inference calls. In the default command-mode profile, Nemotron ASR and Magpie TTS are long-lived JSONL workers, vLLM is ready for the three LLM stages and is released before Step1X/Cosmos work, and Cosmos remains an on-demand process. When the campaign reaches a terminal state, the backend prepares the idle profile again for the next campaign. `GET /api/v1/models` reports the selected policy and resident-worker status; `all_models_resident` intentionally remains `false`.
-
-The frontend separates two views of the output:
-
-- **Localized outputs / 本地化输出** shows only the selected `zh`, `en`, or `ja` copy and narration.
-- **Stage artifacts / 阶段过程产物** groups every available intermediate result by the six pipeline stages. Structured text, poster, audio, video, and QC artifacts appear as soon as the backend persists them, including while a later stage is still running.
-
-The complete export uses language and shared folders (legacy compatibility entries are also retained):
+完整导出按语言目录和共享目录组织，并保留兼容旧版的顶层条目：
 
 ```text
 manifest.json
@@ -218,7 +216,7 @@ qc_report.json
 shared/
   source_image.*
   poster.png
-  video.mp4              # when a valid composed video exists
+  video.mp4              # 有有效合成视频时存在
 zh/
   copy.json
   audio.wav
@@ -230,25 +228,25 @@ ja/
   audio.wav
 ```
 
-Only folders for languages requested by that campaign are present.
+只有当前 Campaign 请求过的语言目录会出现。单语言导出只包含该语言的文案、音频和语言安全元数据；只有当视频配音语言与请求导出语言一致时才包含视频。
 
-A single-language export includes only that campaign language's copy/audio and language-safe metadata. A video is included only when its narration language matches the requested export language.
+导出 manifest 记录模型 ID、revision、本地目录、license、阶段尝试次数和模型调用记录。
 
-## API Examples
+## API 示例
 
-Health:
+健康检查：
 
 ```bash
 curl -sS http://127.0.0.1:8000/api/v1/health
 ```
 
-Models:
+模型状态：
 
 ```bash
 curl -sS http://127.0.0.1:8000/api/v1/models
 ```
 
-Transcribe audio:
+转写音频：
 
 ```bash
 curl -sS http://127.0.0.1:8000/api/v1/transcriptions \
@@ -256,7 +254,7 @@ curl -sS http://127.0.0.1:8000/api/v1/transcriptions \
   -F 'language=auto'
 ```
 
-Create a campaign:
+创建 Campaign：
 
 ```bash
 curl -sS http://127.0.0.1:8000/api/v1/campaigns \
@@ -268,19 +266,19 @@ curl -sS http://127.0.0.1:8000/api/v1/campaigns \
   -F 'languages=zh,en,ja'
 ```
 
-Stream progress:
+流式查看进度：
 
 ```bash
 curl -N http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/events
 ```
 
-Rerun from a stage:
+从指定阶段重跑：
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/rerun/media_production
 ```
 
-Preview persisted media and QC artifacts:
+预览已持久化媒体和质检产物：
 
 ```bash
 curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/assets/poster
@@ -289,9 +287,9 @@ curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/assets/video
 curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/assets/qc
 ```
 
-Valid asset keys are `source`, `poster`, `video`, `qc`, `audio-zh`, `audio-en`, and `audio-ja`; an asset is available only after its producing stage has succeeded.
+有效 asset key 为 `source`、`poster`、`video`、`qc`、`audio-zh`、`audio-en` 和 `audio-ja`。产物只有在对应阶段成功后才可用。
 
-Cancel and export:
+取消和导出：
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/cancel
@@ -299,17 +297,43 @@ curl -OJ http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/export
 curl -OJ 'http://127.0.0.1:8000/api/v1/campaigns/<campaign_id>/export?language=en'
 ```
 
-## Offline and Safety Boundary
+## GPU 使用查看
 
-- Runtime services bind to `127.0.0.1`.
-- Production frontend assets are served by FastAPI on port `8000`; no `5173` tunnel is needed.
-- `validate_offline_runtime` rejects non-local LLM base URLs and adapter commands containing remote URLs.
-- Runtime inference sets `TRANSFORMERS_OFFLINE=1`, `HF_HUB_OFFLINE=1`, and `HF_DATASETS_OFFLINE=1`.
-- Model acquisition is the only lifecycle step that temporarily disables offline Hugging Face flags.
-- Model file verification rejects unsafe paths, size mismatches, SHA-256 mismatches, and cleanup outside the locked model root.
-- Model weights are not committed to this repository.
+Campaign 运行时，在 DGX Spark SSH 终端执行：
 
-SSH tunnel from a local machine:
+```bash
+# 单次快照
+nvidia-smi
+
+# 实时查看利用率、功耗、频率、温度和 PCIe 活动
+nvidia-smi dmon -s pucvmet
+```
+
+网页中也有可展开的 **在哪里查看 GPU 使用情况？ / Where can I view GPU usage?** 指引。它是操作提示，不是内嵌指标面板；实时数值仍在 SSH 终端中查看。
+
+如果演示用后台监控正在运行，输出位于：
+
+```bash
+tail -f /home/Developer/overseaark-data/logs/gpu-dmon.log
+```
+
+DGX Spark 使用 CPU/GPU 统一内存，因此 `nvidia-smi` 的部分进程内存列可能显示 `N/A` 或 `Not Supported`。配合下面命令查看总体统一内存压力：
+
+```bash
+free -h
+```
+
+## 离线与安全边界
+
+- 运行时服务绑定到 `127.0.0.1`。
+- 生产前端资源由 FastAPI 在 `8000` 端口提供，不需要 `5173` tunnel。
+- `validate_offline_runtime` 拒绝非本地 LLM base URL 和包含远程 URL 的 adapter 命令。
+- 推理运行时设置 `TRANSFORMERS_OFFLINE=1`、`HF_HUB_OFFLINE=1` 和 `HF_DATASETS_OFFLINE=1`。
+- 只有模型获取生命周期步骤会临时关闭 Hugging Face 离线标志。
+- 模型文件校验会拒绝不安全路径、大小不匹配、SHA-256 不匹配，以及锁定模型根目录外的清理操作。
+- 模型权重不提交到仓库。
+
+本地机器 SSH tunnel 示例：
 
 ```bash
 ssh -p 6105 \
@@ -317,9 +341,9 @@ ssh -p 6105 \
   root@106.13.186.155
 ```
 
-## Verification
+## 验证
 
-Local-safe verification:
+本地安全验证：
 
 ```bash
 OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark doctor
@@ -327,24 +351,24 @@ OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./o
 OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark test
 ```
 
-`./overseaark test` runs the backend suite, frontend type/build checks, lifecycle adversarial checks, backend smoke tests, and Mock HTTP E2E. Test counts change as coverage grows; use the totals printed by the current run rather than a number copied into documentation.
+`./overseaark test` 会运行后端套件、前端类型/构建检查、生命周期对抗检查、后端 smoke test 和 Mock HTTP E2E。测试数量会随覆盖率变化，应以当前命令输出为准，不要引用文档中的固定数字。
 
-Manual browser smoke test after `start`:
+启动后的手动浏览器 smoke test：
 
-1. Open `http://127.0.0.1:8000`; confirm Simplified Chinese is the default and switch to **English**, then refresh to confirm persistence.
-2. Select **一键填入示例 / Fill demo**; confirm the image and complete form are filled, then create the campaign.
-3. While it runs, confirm SSE progress advances and completed-stage results appear under **阶段过程产物 / Stage artifacts** before the whole campaign finishes.
-4. Switch the output tabs between Chinese, English, and Japanese; confirm the localized copy/audio follows the selected language.
-5. After `completed` or `partial`, download both **all languages** and the current-language ZIP and inspect their folder boundaries.
-6. Run `nvidia-smi dmon -s pucvmet` in the SSH terminal during the heavy stages and `free -h` between stage transitions.
+1. 打开 `http://127.0.0.1:8000`；确认默认语言为简体中文，切换到 **English**，刷新后确认语言选择保持。
+2. 点击 **一键填入示例 / Fill demo**；确认图片和完整表单已填入，然后创建 Campaign。
+3. 运行期间确认 SSE 进度递增，并且已完成阶段的结果会在整个 Campaign 结束前出现在 **阶段过程产物 / Stage artifacts**。
+4. 在中文、English、Japanese 输出 tab 之间切换；确认本地化文案和音频跟随当前语言。
+5. Campaign 进入 `completed` 或 `partial` 后，下载 **all languages** 和当前语言 ZIP，并检查语言目录边界。
+6. 重任务阶段在 SSH 终端运行 `nvidia-smi dmon -s pucvmet`，阶段切换间隙运行 `free -h`。
 
-Command-mode model verification:
+真实模型校验：
 
 ```bash
 ./overseaark models verify
 ```
 
-Direct adapter benchmarks with verified models:
+使用已校验模型做直接 adapter benchmark：
 
 ```bash
 ./overseaark benchmark llm
@@ -353,42 +377,55 @@ Direct adapter benchmarks with verified models:
 ./overseaark benchmark video
 ```
 
-`benchmark audio` runs three cycles across `zh`, `en`, and `ja`, uses two Magpie voices per language, checks both specified-language and automatic Nemotron ASR, and fails below similarity `0.75`.
+`benchmark audio` 会对 `zh`、`en`、`ja` 各运行三轮，使用每种语言两个 Magpie voice，检查指定语言和自动 Nemotron ASR，低于 `0.75` 相似度则失败。
 
-## Competition Highlights
+## 赛事亮点
 
-- Single monorepo with reproducible local operations.
-- No Docker; the target path is native aarch64 Ubuntu 24.04 on DGX Spark.
-- Pinned `nvidia/Qwen3.6-35B-A3B-NVFP4` served by native vLLM `0.25.1` from an isolated `.venv-vllm`, with no Docker runtime.
-- vLLM listens only on localhost `127.0.0.1:8011` and uses the DGX Spark parameters from the lifecycle script: `--tensor-parallel-size 1`, `--kv-cache-dtype fp8`, `--attention-backend flashinfer`, `--moe-backend marlin`, `--max-model-len 262144`, `--max-num-seqs 4`, `--max-num-batched-tokens 8192`, chunked prefill, prefix caching, and MTP speculative decoding.
-- Step1X defaults to 6 steps after a 176.3-second DGX image benchmark retained a usable product poster while saving about 45 seconds versus run 3.
-- Cosmos3-Edge default is 28 steps and uses the pinned Wan2.2 VAE dependency.
-- Nemotron ASR and Magpie TTS close the audio loop with measurable round-trip QC.
-- Inference calls are serialized; ASR/TTS workers stay ready, vLLM is prewarmed between campaigns and released before visual stages, Step1X residency is opt-in, and Cosmos remains on demand.
-- Six-stage process artifacts are visible during execution, while the localized view and single-language export keep `zh`, `en`, and `ja` content separated.
-- Missing models and corrupt same-size locked files are repaired automatically by rerunning `./overseaark start`.
-- Export manifests record model ids, revisions, local directories, licenses, stage attempts, and model calls.
+- 单仓库提供可复现本地运维路径。
+- 无 Docker；目标路径是 DGX Spark 上的 native aarch64 Ubuntu 24.04。
+- 固定 `nvidia/Qwen3.6-35B-A3B-NVFP4`，由隔离 `.venv-vllm` 中的 native vLLM `0.25.1` 提供服务，无 Docker runtime。
+- vLLM 只监听 localhost `127.0.0.1:8011`，使用生命周期脚本中的 DGX Spark 参数：`--tensor-parallel-size 1`、`--kv-cache-dtype fp8`、`--attention-backend flashinfer`、`--moe-backend marlin`、`--max-model-len 262144`、`--max-num-seqs 4`、`--max-num-batched-tokens 8192`、chunked prefill、prefix caching 和 MTP speculative decoding。
+- Step1X 默认 6 步；DGX image benchmark 为 `176.3s`，相较 run 3 节省约 45 秒，并保留可用商品海报。
+- Cosmos3-Edge 默认 28 步，并使用固定 Wan2.2 VAE 依赖。
+- Nemotron ASR 和 Magpie TTS 形成可度量的音频回听质检闭环。
+- 推理调用串行化；ASR/TTS worker 保持就绪，vLLM 在 Campaign 间隔预热并在视觉阶段前释放，Step1X 常驻为 opt-in，Cosmos 按需启动。
+- 六阶段过程产物在执行中可见，本地化视图和单语言导出保持 `zh`、`en`、`ja` 内容隔离。
+- 缺失模型和损坏但同大小的锁定文件可通过重新运行 `./overseaark start` 自动修复。
+- 导出 manifest 记录模型 ID、revision、license、阶段尝试次数和模型调用。
 
-## Troubleshooting
+## 故障排查
 
-| Symptom | Likely cause | Fix |
+| 现象 | 可能原因 | 处理方式 |
 | --- | --- | --- |
-| `runtime dependencies are incomplete` | Bootstrap did not finish or a pinned venv is missing imports. | Rerun `./overseaark start`; caches are reused. Inspect `./overseaark logs all` if it repeats. |
-| `Qwen3.6 NVFP4 is missing` | Required model file is absent from `OVERSEAARK_MODELS_DIR`. | Run `./overseaark start` or `./overseaark models sync`. |
-| `model manifest verification` fails | Missing, truncated, or SHA-mismatched locked file. | Rerun `./overseaark start`; invalid locked files are removed and fetched again. |
-| `pinned native vLLM is missing` | `.venv-vllm` is absent or does not contain the pinned CUDA ARM64 wheel. | Rerun `./overseaark bootstrap`; remove `.venv-vllm` first only when forcing a clean reinstall. |
-| First vLLM start appears slow | FlashInfer is compiling and caching GB10/SM121 kernels. | Leave the first start running. JIT is intentionally serialized with `MAX_JOBS=1` to avoid unified-memory OOM; the verified cold-cache start took 526 seconds and later full restart took 166 seconds. Inspect `./overseaark logs llm` for progress. |
-| Adapter timeout | A heavy model exceeded `OVERSEAARK_ADAPTER_TIMEOUT`. | Check `OVERSEAARK_ADAPTER_TIMEOUT`, model logs, and GPU memory pressure; the process group is terminated on timeout. |
-| Resident startup fails or memory pressure grows | The selected warm profile is too aggressive for current unified-memory headroom. | Restore `OVERSEAARK_RESIDENT_ADAPTERS=asr,tts` and `OVERSEAARK_KEEP_VLLM_RESIDENT=0`, restart, then inspect `free -h` and `/api/v1/models`. |
-| `export?language=...` returns 422 | The code is unsupported or was not requested for this campaign. | Use `zh`, `en`, or `ja`, and only a language included when the campaign was created. |
-| Frontend shows degraded local preview | Backend is unavailable from the browser. | Check `./overseaark status` and `http://127.0.0.1:8000/api/v1/health`. |
-| Upload rejected with 415 | Unsupported content type or image bytes do not match the declared type. | Use real PNG/JPEG/WebP files for products and WAV/MP3/M4A/WebM for audio. |
-| Export returns 409 | Campaign has not reached packaging and no partial export is available. | Wait for a terminal campaign status or inspect stage errors. |
+| `runtime dependencies are incomplete` | Bootstrap 未完成或固定 venv 缺少 import。 | 重新运行 `./overseaark start`；缓存会复用。如果重复出现，查看 `./overseaark logs all`。 |
+| `Qwen3.6 NVFP4 is missing` | `OVERSEAARK_MODELS_DIR` 中缺少必需模型文件。 | 运行 `./overseaark start` 或 `./overseaark models sync`。 |
+| `model manifest verification` 失败 | 锁定文件缺失、截断或 SHA 不匹配。 | 重新运行 `./overseaark start`；无效锁定文件会被删除并重新获取。 |
+| `pinned native vLLM is missing` | `.venv-vllm` 不存在，或未安装固定 CUDA ARM64 wheel。 | 重新运行 `./overseaark bootstrap`；只有强制干净重装时才先删除 `.venv-vllm`。 |
+| 第一次 vLLM 启动很慢 | FlashInfer 正在编译并缓存 GB10/SM121 kernel。 | 保持首次启动继续运行。JIT 已用 `MAX_JOBS=1` 串行化以避免统一内存 OOM；已验证冷缓存启动用时 526 秒，后续完整重启用时 166 秒。查看 `./overseaark logs llm`。 |
+| Adapter timeout | 重模型超过 `OVERSEAARK_ADAPTER_TIMEOUT`。 | 检查 `OVERSEAARK_ADAPTER_TIMEOUT`、模型日志和 GPU 内存压力；超时时进程组会被终止。 |
+| 常驻启动失败或内存压力增长 | 当前 warm profile 对统一内存余量过于激进。 | 恢复 `OVERSEAARK_RESIDENT_ADAPTERS=asr,tts` 和 `OVERSEAARK_KEEP_VLLM_RESIDENT=0`，重启后查看 `free -h` 和 `/api/v1/models`。 |
+| `export?language=...` 返回 422 | 语言代码不受支持，或该 Campaign 未请求该语言。 | 使用 `zh`、`en` 或 `ja`，并且必须是创建 Campaign 时包含的语言。 |
+| 前端显示 degraded local preview | 浏览器无法访问后端。 | 检查 `./overseaark status` 和 `http://127.0.0.1:8000/api/v1/health`。 |
+| 上传返回 415 | content type 不受支持，或文件字节与声明类型不匹配。 | 商品图使用真实 PNG/JPEG/WebP，音频使用 WAV/MP3/M4A/WebM。 |
+| 导出返回 409 | Campaign 尚未到达 packaging，且没有可用 partial export。 | 等待 Campaign 进入终态，或检查阶段错误。 |
 
-## More Docs
+## 重建 PRD Word 文件
+
+PRD 的 Markdown 是内容源，Word 文件由仓库内脚本生成。文档工具使用独立环境，不写入后端运行依赖：
+
+```bash
+python3 -m venv .venv-docs
+.venv-docs/bin/pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r tools/requirements-docs.txt
+.venv-docs/bin/python tools/build_prd_docx.py
+```
+
+生成结果为 `docs/出海方舟OverseaArk-PRD-v2.0.docx`。渲染时应提供 `Arial Unicode MS` 或兼容的中日韩 Unicode 字体，避免办公软件回退为缺字字体。
+
+## 更多文档
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Competition Notes](docs/COMPETITION.md)
 - [Model Licenses](docs/MODEL_LICENSES.md)
-- [PRD v1.1](docs/PRD-v1.1.md)
+- [PRD v2.0（Markdown）](docs/PRD-v2.0.md)
+- [PRD v2.0（Word）](docs/出海方舟OverseaArk-PRD-v2.0.docx)

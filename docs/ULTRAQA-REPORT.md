@@ -36,7 +36,7 @@
 - `[0] backend/.venv/bin/python -m pytest ...` repeated three times — 21 targeted adversarial tests passed in all three cycles.
 - `[0] localhost:18080 hostile HTTP harness` — malformed body, forged image, unsupported language, prompt injection, hostile SSE cursor, repeated cancel, and cancel/rerun all produced expected results.
 - `[1] first localhost harness attempt` — connection refused because the service process was launched in a completed execution session. Classified as harness apparatus failure; rerun kept startup and probes in one bounded session and passed.
-- `[0] DOCX a11y and table geometry audits` — 0 accessibility findings; all 14 tables matched width, indent, grid, and cell geometry.
+- `[0] DOCX a11y and table geometry audits` — 0 accessibility findings; all 16 tables matched width, indent, grid, cell, repeated-header, and non-splitting row geometry.
 - `[0] OVERSEAARK_STEP1X_STEPS=6 ./overseaark benchmark image` on DGX — 176.305 seconds, FP8 layerwise, full GPU, usable poster.
 - `[0] ffprobe/zip/SHA-256 verification for runs 3 and 4` — 15-second 854x480 H.264/AAC videos and structurally valid export zips.
 - `[0] native vLLM Run9 DGX verification` — 580.147-second completed Campaign; 15-second 854x480 H.264/AAC; 23-member ZIP; three SHA-256 captures; all six stage attempts equal 1.
@@ -115,4 +115,4 @@
 - UQ-14 exports: full `8,688,765` bytes, zh `4,995,999`, en `7,768,347`, ja `4,986,145`; all four had `testzip=null`, and scoped archives contained only their requested language metadata/assets.
 - UQ-14 residency: ASR PID `3387194`/starts `1` and TTS PID `3387744`/starts `1` were identical before and after the full Campaign; campaign-window backend and LLM scans found zero OOM/CUDA/137/error matches.
 - UQ-15 active cancellation: TTS CPU ticks advanced `2336 -> 2339` with zero vLLM serve process at the trigger; old PID `3387744` terminated, new ready PID `3442143` returned with starts `2`, ASR remained PID `3387194`/starts `1`, health was `ok`, warmup was `ready`, and heavy-orphan scan was empty.
-- PRD verification: macOS Quick Look rendered the Chinese text correctly; DOCX a11y findings 0; 14/14 tables passed geometry audit.
+- PRD v2.0 verification: every page of the final font-compatible render was visually inspected with correct Chinese glyphs and clean pagination; DOCX a11y findings 0; 16/16 tables passed geometry audit.
