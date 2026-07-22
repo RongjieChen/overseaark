@@ -26,7 +26,7 @@ If a model path or adapter fails, the product must show `partial` or `degraded` 
 - Cancel and zip export.
 - Mock mode for local rehearsals without GPU models.
 - Command adapters for Qwen3.6, Step1X, Cosmos3-Edge, Nemotron ASR, and Magpie TTS.
-- CUDA `llama.cpp` `llama-server` pinned to `76f46ad29d61fd8c1401e8221842934bf62a6064`.
+- Native vLLM `0.25.1` ARM64 CUDA wheel in `.venv-vllm`, serving `nvidia/Qwen3.6-35B-A3B-NVFP4` revision `491c2f1ea524c639598bf8fa787a93fed5a6fbce` on localhost `8011`.
 - ModelManager serialization and LLM stop-before-heavy-adapter behavior.
 - Step1X default `6` inference steps, validated by a 176.3-second DGX image benchmark.
 - Cosmos3-Edge default `28` inference steps and pinned Wan2.2 VAE dependency.
@@ -44,8 +44,11 @@ The latest status supplied for this documentation pass:
 | Run 3 | Completed | Uninterrupted completion in 10m45s; real 854x480 Cosmos output, valid zip, and ASR similarity zh `0.833`, en `1.0`, ja `1.0`. |
 | Run 4 | Completed | All six stages succeeded on first attempts in 590.003s (9m50s); real 854x480 output, valid 23-member zip, and ASR similarity zh `0.933`, en `1.0`, ja `1.0`. |
 | Run 5 | Completed | All stages succeeded on first attempts in 604.844s; a Chinese audio QC retry passed at `0.889`, with en `1.0` and ja `0.931`; video and 23-member zip verified. |
+| Run 7 | Completed on old runtime | Cold-start completed in 9m12s. This is legacy runtime evidence and must not be cited as vLLM acceptance. |
+| Run 8 | Partial on native vLLM | Qwen/Step1X/Magpie/Cosmos all ran locally, but mixed-script Chinese narration scored `0.583` then `0.696` after retries; truthful QC kept the campaign `partial`. |
+| Run 9 | Completed on native vLLM | All six stages succeeded on first attempts in `580.147s` (9m40s); ASR similarity zh `0.9375`, en `1.0`, ja `0.9189`; 854x480 H.264/AAC video and 23-member ZIP verified. |
 
-All five runs reached `completed`. Run 4 provides the first measured <=10-minute pass after the 6-step Step1X change. Run 5 missed by 4.844 seconds because truthful QC retried Chinese audio, so the stricter criterion now requires three new consecutive <=10-minute campaigns.
+Runs 1-5 and run 7 are historical evidence from the previous LLM runtime. Native vLLM run 8 proves failure truthfulness, while run 9 provides the first native vLLM complete <=10-minute pass. The stricter criterion still requires two further consecutive <=10-minute native vLLM campaigns after run 9.
 
 ## DGX Spark Fit
 
@@ -55,7 +58,7 @@ All five runs reached `completed`. Run 4 provides the first measured <=10-minute
 - Keeps model weights under `/home/Developer/overseaark-models`.
 - Keeps generated business data under `/home/Developer/overseaark-data`.
 - Serializes heavy model calls for unified-memory pressure.
-- Starts Qwen3.6 through local CUDA `llama.cpp` and stops it before non-LLM GPU adapters.
+- Starts Qwen3.6 through local native vLLM and stops it before non-LLM GPU adapters.
 - Uses offline runtime flags during inference.
 - Records model ids, revisions, licenses, stage attempts, and calls in the export manifest.
 
@@ -82,15 +85,15 @@ Use:
 
 - "Single-repo local DGX Spark campaign workbench."
 - "No Docker or cloud inference path."
-- "Qwen3.6-35B-A3B Q4_K_M runs through local CUDA llama.cpp."
+- "`nvidia/Qwen3.6-35B-A3B-NVFP4` runs through native vLLM `0.25.1` on localhost `8011`."
 - "Model stack is pinned by manifest with size and SHA-256 verification."
 - "Step1X defaults to 6 steps and Cosmos3-Edge defaults to 28 steps for measured demo latency."
 - "Nemotron ASR and Magpie TTS provide a measured audio QC loop."
-- "Five real DGX E2E runs completed; run 4 completed all stages in 9m50s with a valid 480p model video and auditable export."
+- "Native vLLM run 9 completed all six stages in 9m40s with a valid real-model video, three-language speech QC, and auditable ZIP."
 
 Avoid:
 
-- "Three consecutive runs met the <=10 minute target"; the current evidence establishes one qualifying run.
+- "Three consecutive native vLLM runs met the <=10 minute target"; the current evidence establishes one qualifying native vLLM run.
 - "Cloud-free production run" unless the specific run was audited with network controls.
 - "Model quality fully validated" without benchmark logs or review notes.
 - "Cosmos fallback is final output" when the adapter produced a degraded ffmpeg fallback.

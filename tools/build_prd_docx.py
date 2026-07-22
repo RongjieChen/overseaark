@@ -23,9 +23,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs" / "PRD-v1.1.md"
 TARGET = ROOT / "docs" / "出海方舟OverseaArk-PRD-v1.1.docx"
 
-FONT_EAST_ASIA = "Noto Sans CJK SC"
-FONT_FALLBACK = "Noto Sans CJK SC"
-FONT_LATIN = "Noto Sans CJK SC"
+# Use a CJK face present on the delivery Mac instead of depending on substitution
+# for an unavailable Noto font. Quick Look and Word can resolve this face directly.
+FONT_EAST_ASIA = "Heiti SC"
+FONT_FALLBACK = "Heiti SC"
+FONT_LATIN = "Heiti SC"
 CONTENT_WIDTH_DXA = 9360
 TABLE_INDENT_DXA = 120
 CELL_MARGINS_DXA = {"top": 80, "bottom": 80, "start": 120, "end": 120}
@@ -138,26 +140,6 @@ def set_table_borders(table):
         element.set(qn("w:color"), "D1D5DB")
 
 
-def add_field(paragraph, instruction: str):
-    begin = OxmlElement("w:fldChar")
-    begin.set(qn("w:fldCharType"), "begin")
-    instr = OxmlElement("w:instrText")
-    instr.set(qn("xml:space"), "preserve")
-    instr.text = instruction
-    separate = OxmlElement("w:fldChar")
-    separate.set(qn("w:fldCharType"), "separate")
-    end = OxmlElement("w:fldChar")
-    end.set(qn("w:fldCharType"), "end")
-    paragraph._p.append(begin)
-    paragraph._p.append(instr)
-    paragraph._p.append(separate)
-    paragraph._p.append(end)
-
-
-def add_page_number(paragraph):
-    add_field(paragraph, "PAGE")
-
-
 def add_toc(document: Document, markdown: str):
     p = document.add_paragraph(style="TOC Instruction")
     p.add_run("目录").bold = True
@@ -243,8 +225,7 @@ def configure_document(document: Document):
     set_run_font(run, 8, True, "4B5563")
 
     footer = section.footer.paragraphs[0]
-    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    add_page_number(footer)
+    footer.text = ""
 
 
 def parse_table(lines: list[str], start: int) -> tuple[list[list[str]], int]:

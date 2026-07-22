@@ -8,7 +8,7 @@ Metadata was checked against `model-manifest.lock.json` on 2026-07-22. Re-check 
 
 | Use | Manifest id | Provider | Source | Revision | Local directory | Required | Terms |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| LLM/VLM | `qwen3.6-35b-a3b-gguf-q4_k_m` | ModelScope | `ggml-org/Qwen3.6-35B-A3B-GGUF` | `37b9ed4ed8b3942a5ac69bffb490a5d25acdad4e` | `qwen/qwen3.6-35b-a3b-gguf` | yes | Apache-2.0 |
+| LLM/VLM | `qwen3.6-35b-a3b-nvfp4` | Hugging Face | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `491c2f1ea524c639598bf8fa787a93fed5a6fbce` | `nvidia/qwen3.6-35b-a3b-nvfp4` | yes | Apache-2.0 |
 | Image | `step1x-edit-v1p2` | Hugging Face | `stepfun-ai/Step1X-Edit-v1p2` | `ca85b97fd19f2235dc0d6fd3633d1319f169e149` | `stepfun/step1x-edit-v1p2` | yes | Apache-2.0 |
 | Optional T2I | `cosmos-predict2-0.6b-text2image` | ModelScope | `nv-community/Cosmos-Predict2-0.6B-Text2Image`, mirror of `nvidia/Cosmos-Predict2-0.6B-Text2Image` | `master`, upstream `dd55b6858b22ad569976bff207880b8fea839da7` | `nvidia/cosmos-predict2-0.6b-text2image` | no | NVIDIA Open Model License |
 | Video | `cosmos3-edge` | ModelScope | `nv-community/Cosmos3-Edge`, mirror of `nvidia/Cosmos3-Edge` | `master`, upstream `6f58f6b4c91288838e60b6bcb2cc45d997e961de` | `nvidia/cosmos3-edge` | yes | NVIDIA Open Model Development Weight License 1.1 |
@@ -18,11 +18,11 @@ Metadata was checked against `model-manifest.lock.json` on 2026-07-22. Re-check 
 | TTS | `magpie-tts-multilingual-357m` | Hugging Face | `nvidia/magpie_tts_multilingual_357m` | `34d7e40da85cabc97f92198889b65cea27bc7fd1` | `nvidia/magpie_tts_multilingual_357m` | yes | NVIDIA Open Model License |
 | TTS tokenizer | `byt5-small-tokenizer` | Hugging Face | `google/byt5-small` | `68377bdc18a2ffec8a0533fef03b1c513a4dd49d` | `google/byt5-small` | yes | Apache-2.0 |
 
-Required locked files total 79,075,769,933 bytes. Including optional Cosmos-Predict2, the manifest totals 83,399,999,524 bytes.
+Required locked files total 81,211,096,221 bytes. Including optional Cosmos-Predict2, the manifest totals 85,535,325,812 bytes. The primary Qwen NVFP4 model files total 23,457,714,000 bytes, about 23.45 GB.
 
 ## Source Links
 
-- Qwen3.6-35B-A3B-GGUF: https://modelscope.cn/models/ggml-org/Qwen3.6-35B-A3B-GGUF
+- Qwen3.6-35B-A3B-NVFP4: https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4
 - Step1X-Edit-v1p2: https://huggingface.co/stepfun-ai/Step1X-Edit-v1p2
 - Cosmos-Predict2 0.6B Text2Image: https://huggingface.co/nvidia/Cosmos-Predict2-0.6B-Text2Image
 - Cosmos3-Edge: https://huggingface.co/nvidia/Cosmos3-Edge
@@ -40,8 +40,9 @@ Treat `model-manifest.lock.json` as the full verification source. Selected requi
 
 | Model | File | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
-| Qwen3.6 GGUF | `Qwen3.6-35B-A3B-Q4_K_M.gguf` | `20419565568` | `671e47e0ec53c665d048b98c3ecbfd5236b5ca9c3e02ed19fc8f81f7b85140c7` |
-| Qwen3.6 mmproj | `mmproj-Qwen3.6-35B-A3B-BF16.gguf` | `902822144` | `360c746ddf38fb67c06f83a0a88742492aa231e59e335cd980e6302f59ea6089` |
+| Qwen3.6 NVFP4 | `model-00001-of-00003.safetensors` | `10006877608` | `07141c2db92e47bc08777132cd1a0323faf300eab3a7d7c111bc2bf075fda050` |
+| Qwen3.6 NVFP4 | `model-00002-of-00003.safetensors` | `10003595752` | `6dea9c759a0f941cf9e1cc1501216b0e107966a66c90425050e212efbd053f02` |
+| Qwen3.6 NVFP4 | `model-00003-of-00003.safetensors` | `3413864960` | `9758875fc55e49561165f4a44342b654c123c3e25c6811b34abb83553fb1a164` |
 | Step1X | `text_encoder/model-00001-of-00004.safetensors` | `4968243304` | `f4b54b9f0b843a1837a4e3c26cee7dd62d6697a6d7592d5ca2d005914aed5591` |
 | Step1X | `transformer/diffusion_pytorch_model-00001-of-00003.safetensors` | `9978548592` | `4c43a9758a7347e1e3c6815dd8b042a4cb24ad1df882c86be17c66a2659bbbb3` |
 | Step1X | `vae/diffusion_pytorch_model.safetensors` | `335306212` | `f4487eaa8df19a5254ce83a01d402e93d2b6acba769ed9bfeddc6849cd808745` |
@@ -57,7 +58,7 @@ Treat `model-manifest.lock.json` as the full verification source. Selected requi
 
 | Framework | Pin |
 | --- | --- |
-| `ggml-org/llama.cpp` | `76f46ad29d61fd8c1401e8221842934bf62a6064` |
+| native vLLM ARM64 CUDA wheel | `vLLM 0.25.1`; SHA-256 `bdffbe35b2c1ab8f2a9dcc337b657261d9b192c92c217e5a2f98a8835fe78daa` |
 | Peyton-Chen/diffusers `step1xedit_v1p2` | `f5f1c98fa00cb4d0479af1b1b1c17d724345963a` |
 | NVIDIA/cosmos-framework | `ed8287fd7477113f8ac4f6b84290514d55cf0cdc` |
 | NVIDIA-NeMo/NeMo for ASR | `93b15b1f423ddc8e0d189810fdd8304091d9b1bd` |

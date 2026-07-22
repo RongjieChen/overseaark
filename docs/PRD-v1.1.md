@@ -18,7 +18,7 @@
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
 | v1.0 | 2026-07-21 | 初版，定义外贸营销作战室方向 |
-| v1.1 | 2026-07-22 | 对齐最终实机实现：Qwen3.6 GGUF、CUDA llama.cpp、Step1X、Cosmos3-Edge、NeMo 音频栈、按需模型卸载、自动下载与对抗性验收 |
+| v1.1 | 2026-07-22 | 对齐当前实现：Qwen3.6 NVFP4、native vLLM 0.25.1、Step1X、Cosmos3-Edge、NeMo 音频栈、按需模型卸载、自动下载与对抗性验收 |
 
 ## 1. 产品定位
 
@@ -78,7 +78,7 @@ overseaark/
 
 | 顺序 | 阶段枚举 | 模型/工具 | 主要输出 |
 | --- | --- | --- | --- |
-| 1 | `market_positioning` | Qwen3.6-35B-A3B Q4_K_M + BF16 mmproj | `positioning`、`differentiators`、目标市场上下文 |
+| 1 | `market_positioning` | Qwen3.6-35B-A3B NVFP4 via native vLLM | `positioning`、`differentiators`、目标市场上下文 |
 | 2 | `buyer_persona` | Qwen3.6-35B-A3B | personas、采购动机、决策触发点 |
 | 3 | `multilingual_copy` | Qwen3.6-35B-A3B | zh/en/ja 的标题、卖点、详情、开发信和短视频脚本 |
 | 4 | `visual_design` | Step1X-Edit-v1p2 FP8 layerwise + Pillow | `visual_design.png`；生成背景与产品编辑后再由 Pillow 排字 |
@@ -120,7 +120,7 @@ Stage 状态枚举仅为：
 
 | 能力 | 模型 | 修订/要求 | 必需性 |
 | --- | --- | --- | --- |
-| LLM/VLM | Qwen3.6-35B-A3B GGUF Q4_K_M + BF16 mmproj | ModelScope `ggml-org/Qwen3.6-35B-A3B-GGUF`，revision `37b9ed4...`；CUDA llama.cpp `76f46ad...` | required |
+| LLM/VLM | `nvidia/Qwen3.6-35B-A3B-NVFP4` | Hugging Face revision `491c2f1ea524c639598bf8fa787a93fed5a6fbce`；native vLLM `0.25.1` ARM64 CUDA wheel；约 23.45 GB；服务 `127.0.0.1:8011` | required |
 | 图片编辑 | Step1X-Edit-v1p2 | `stepfun-ai/Step1X-Edit-v1p2`，revision `ca85b97...`；FP8 layerwise、默认全 GPU | required |
 | T2I 辅助 | Cosmos-Predict2 0.6B Text2Image | optional pure T2I；不能作为视频依赖 | optional |
 | 视频 | Cosmos3-Edge + Wan2.2 VAE | revision `6f58f6...`；Cosmos Framework `ed8287f...`；Wan VAE `921dbaf...` | required |
@@ -133,7 +133,7 @@ Stage 状态枚举仅为：
 
 ## 6. ModelManager 与统一内存
 
-ModelManager 是重型模型访问边界。它把 Qwen3.6、Step1X、Cosmos3-Edge、Magpie TTS、Nemotron ASR 的调用串行化，避免多个大模型同时常驻 DGX Spark 统一内存。连续 LLM 阶段复用同一个本地 llama.cpp 进程；进入图片、视频或音频阶段前停止 LLM，重型 adapter 退出后释放 CUDA context。
+ModelManager 是重型模型访问边界。它把 Qwen3.6、Step1X、Cosmos3-Edge、Magpie TTS、Nemotron ASR 的调用串行化，避免多个大模型同时常驻 DGX Spark 统一内存。连续 LLM 阶段复用同一个本地 vLLM 进程；进入图片、视频或音频阶段前停止 vLLM，重型 adapter 退出后释放 CUDA context。
 
 | 规则 | 要求 |
 | --- | --- |
@@ -175,7 +175,7 @@ cp .env.example .env
 ./overseaark start
 ```
 
-`start` 必须是幂等一键入口：依赖缺失时自动 bootstrap，必需模型缺失、尺寸错误或 SHA256 不匹配时自动断点续传修复，然后构建前端、启动本地 LLM 和 FastAPI，并通过健康检查。安装必须使用 TUNA PyPI 镜像；模型按清单优先走 ModelScope，NVIDIA 音频模型通过固定 revision 的 Hugging Face 下载，并以 `https://hf-mirror.com` 加速。`bootstrap` 和 `models sync` 保留为显式运维命令。
+`start` 必须是幂等一键入口：依赖缺失时自动 bootstrap，必需模型缺失、尺寸错误或 SHA256 不匹配时自动断点续传修复，然后构建前端、启动本地 vLLM 和 FastAPI，并通过健康检查。安装必须使用 TUNA PyPI 镜像；Qwen3.6 NVFP4 和 NVIDIA 音频模型通过固定 revision 的 Hugging Face 下载，并以 `https://hf-mirror.com` 加速。`bootstrap` 和 `models sync` 保留为显式运维命令。
 
 开发/烟测模式允许跳过重型模型：
 
@@ -243,7 +243,7 @@ ssh -p 6105 -L 8000:127.0.0.1:8000 root@106.13.186.155
 | AT-009 | 离线审计 | 主生成链路公网请求数为 0 |
 | AT-010 | API 契约 | `/api/v1` 路由、状态枚举和 SSE 可被 e2e 测试验证 |
 
-截至 2026-07-22 的实机证据：五轮真模型 Campaign 均达到 `completed`；第四轮六阶段全部一次成功，用时 `590.002615s`，成为首次低于 10 分钟的完整流程。第五轮因中文语音质检重试用时 `604.844162s`，因此 AT-001 需重新获得三轮连续达标证据，本 PRD 不将单轮达标表述为已完成三轮验收。
+截至 2026-07-22 的实机证据：旧运行时第四轮用时 `590.002615s`，Run7 冷启动用时 9m12s，仅作为历史证据。native vLLM Run8 因中文混合字母缩写口播回听低于 `0.75` 而如实标记为 `partial`；修复口播生成规则后，Run9 六阶段全部一次成功，用时 `580.147219s`，中/英/日回听相似度为 `0.9375`/`1.0`/`0.9189`，480p 真模型视频与 23 文件 ZIP 校验通过。这是 AT-001 的首轮 native vLLM 达标证据，仍需后续两轮连续达标才能声称完成三轮验收。
 
 ## 13. 竞赛评分映射与结论
 

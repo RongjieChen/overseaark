@@ -6,11 +6,11 @@ The implemented demo flow accepts one product image and product description, run
 
 ## Current Status
 
-- Implemented: root one-command lifecycle, FastAPI API, built frontend mounted by FastAPI, SQLite campaign/event store, multipart uploads, six campaign stages, SSE progress, rerun, cancel, export, mock mode, command adapter mode, model verification/sync, pinned CUDA `llama.cpp`, and process-group cleanup for timed-out adapters.
-- Implemented command adapters: Qwen3.6 LLM/VLM through localhost `llama-server`, Step1X image generation, Cosmos3-Edge video generation, Nemotron ASR, and Magpie TTS.
+- Implemented: root one-command lifecycle, FastAPI API, built frontend mounted by FastAPI, SQLite campaign/event store, multipart uploads, six campaign stages, SSE progress, rerun, cancel, export, mock mode, command adapter mode, model verification/sync, native vLLM LLM runtime, and process-group cleanup for timed-out adapters.
+- Implemented command adapters: Qwen3.6 LLM/VLM through localhost native vLLM, Step1X image generation, Cosmos3-Edge video generation, Nemotron ASR, and Magpie TTS.
 - Implemented safety boundary: localhost-only serving, no remote model command URLs, offline Hugging Face runtime flags, ModelManager serialization, and one heavy GPU adapter active at a time.
 - Not implemented: Docker, ComfyUI, OpenClaw, Ollama, StepFun cloud APIs, NVIDIA hosted inference APIs, or public service binding.
-- DGX E2E evidence: five campaigns reached `completed`. Run 1 recovered through a stage rerun; runs 2 and 3 completed uninterrupted in 10m34s and 10m45s. After moving the measured Step1X demo default from 8 to 6 steps, run 4 completed all six stages on first attempts in `590.003s` (9m50s). Run 5 also completed every stage on first attempts in `604.844s`; its 4.844-second overrun was caused by the specified Chinese audio QC retry, which ultimately passed at `0.889`. Real Step1X, Cosmos3-Edge, Magpie TTS, and Nemotron ASR outputs, 854x480 H.264/AAC video, and a 23-member export zip were verified. One measured sub-10-minute pass is established; three new consecutive qualifying runs are still required for the stricter acceptance criterion.
+- DGX E2E evidence: native vLLM run 9 completed all six stages on first attempts in `580.147s` (9m40s). It produced a real 854x480 H.264/AAC Cosmos video, a valid 23-member ZIP, and ASR similarities zh `0.9375`, en `1.0`, ja `0.9189`. Run 8 is retained as truthful negative evidence: its Chinese mixed-script `GaN` narration stayed below `0.75` and the campaign remained `partial`, which led to the speech-native prompt fix used by run 9. This establishes one qualifying native vLLM run; three consecutive qualifying runs are still required by the stricter PRD criterion.
 
 ## Repository Layout
 
@@ -45,7 +45,7 @@ Developer/mock mode without GPU model assets:
 OVERSEAARK_ADAPTER_MODE=mock OVERSEAARK_MOCK_MODE=1 OVERSEAARK_SKIP_MODELS=1 ./overseaark start
 ```
 
-`start` is idempotent. It bootstraps missing dependencies, builds the frontend, builds pinned CUDA `llama.cpp` when needed, verifies locked model files, downloads only missing or invalid files, launches local `llama-server` on demand, starts FastAPI, and waits for `/api/v1/health`.
+`start` is idempotent. It bootstraps missing dependencies, builds the frontend, installs the pinned native vLLM ARM64 CUDA wheel when needed, verifies locked model files, downloads only missing or invalid files, launches local vLLM on demand at `127.0.0.1:8011`, starts FastAPI, and waits for `/api/v1/health`.
 
 Use these endpoints after startup:
 
@@ -60,6 +60,7 @@ Useful lifecycle commands:
 ./overseaark logs all
 ./overseaark logs llm
 ./overseaark llm status
+./overseaark llm stop
 ./overseaark stop
 ```
 
@@ -84,6 +85,10 @@ Important defaults:
 | `OVERSEAARK_AUTO_DOWNLOAD_MODELS` | `1` | Repair missing/corrupt locked models during `start`. |
 | `OVERSEAARK_STEP1X_STEPS` | `6` | DGX-measured demo default; increase for final-production image refinement. |
 | `OVERSEAARK_COSMOS_STEPS` | `28` | Default Cosmos3-Edge inference steps. |
+| `OVERSEAARK_VLLM_ENV_DIR` | `.venv-vllm` | Isolated native vLLM environment. |
+| `OVERSEAARK_VLLM_PORT` | `8011` | Local OpenAI-compatible Qwen endpoint. |
+| `OVERSEAARK_VLLM_GPU_MEMORY_UTILIZATION` | `0.4` | DGX Spark vLLM memory budget. |
+| `OVERSEAARK_VLLM_MAX_MODEL_LEN` | `262144` | DGX Spark context length for Qwen3.6. |
 
 Mainland-network defaults use TUNA and mirrors while keeping locked hashes authoritative:
 
@@ -92,7 +97,7 @@ MODELSCOPE_ENDPOINT=https://modelscope.cn
 HF_ENDPOINT=https://hf-mirror.com
 OVERSEAARK_PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 OVERSEAARK_PYPI_FILE_PREFIX=https://pypi.tuna.tsinghua.edu.cn/packages/
-OVERSEAARK_PYTORCH_INDEX=https://mirrors.aliyun.com/pytorch-wheels/cu129
+OVERSEAARK_PYTORCH_INDEX=https://mirrors.aliyun.com/pytorch-wheels/cu130
 OVERSEAARK_GITHUB_GIT_PREFIX=https://gh-proxy.com/https://github.com/
 OVERSEAARK_GITHUB_ASSET_PREFIX=https://ghfast.top/
 ```
@@ -101,11 +106,11 @@ Set an empty mirror prefix to use upstream URLs directly.
 
 ## Model Stack
 
-`model-manifest.lock.json` is the source of truth. Required locked files total 79,075,769,933 bytes. With optional Cosmos-Predict2 synced, the manifest totals 83,399,999,524 bytes.
+`model-manifest.lock.json` is the source of truth. Required locked files total 81,211,096,221 bytes. With optional Cosmos-Predict2 synced, the manifest totals 85,535,325,812 bytes. The primary Qwen NVFP4 model files total about 23.45 GB.
 
 | Role | Manifest id | Source | Revision | Local directory | Required | License |
 | --- | --- | --- | --- | --- | --- | --- |
-| LLM/VLM | `qwen3.6-35b-a3b-gguf-q4_k_m` | `ggml-org/Qwen3.6-35B-A3B-GGUF` from ModelScope | `37b9ed4ed8b3942a5ac69bffb490a5d25acdad4e` | `qwen/qwen3.6-35b-a3b-gguf` | yes | Apache-2.0 |
+| LLM/VLM | `qwen3.6-35b-a3b-nvfp4` | `nvidia/Qwen3.6-35B-A3B-NVFP4` from Hugging Face mirror | `491c2f1ea524c639598bf8fa787a93fed5a6fbce` | `nvidia/qwen3.6-35b-a3b-nvfp4` | yes | Apache-2.0 |
 | Image | `step1x-edit-v1p2` | `stepfun-ai/Step1X-Edit-v1p2` from Hugging Face mirror | `ca85b97fd19f2235dc0d6fd3633d1319f169e149` | `stepfun/step1x-edit-v1p2` | yes | Apache-2.0 |
 | Optional T2I | `cosmos-predict2-0.6b-text2image` | `nv-community/Cosmos-Predict2-0.6B-Text2Image` ModelScope mirror of NVIDIA upstream | `master`, upstream `dd55b6858b22ad569976bff207880b8fea839da7` | `nvidia/cosmos-predict2-0.6b-text2image` | no | NVIDIA Open Model License |
 | Video | `cosmos3-edge` | `nv-community/Cosmos3-Edge` ModelScope mirror of NVIDIA upstream | `master`, upstream `6f58f6b4c91288838e60b6bcb2cc45d997e961de` | `nvidia/cosmos3-edge` | yes | NVIDIA Open Model Development Weight License 1.1 |
@@ -119,7 +124,7 @@ Pinned framework commits:
 
 | Component | Commit |
 | --- | --- |
-| `ggml-org/llama.cpp` CUDA `llama-server` | `76f46ad29d61fd8c1401e8221842934bf62a6064` |
+| native vLLM ARM64 CUDA wheel | `vLLM 0.25.1`, wheel SHA-256 `bdffbe35b2c1ab8f2a9dcc337b657261d9b192c92c217e5a2f98a8835fe78daa` |
 | Peyton-Chen/diffusers `step1xedit_v1p2` | `f5f1c98fa00cb4d0479af1b1b1c17d724345963a` |
 | NVIDIA/cosmos-framework | `ed8287fd7477113f8ac4f6b84290514d55cf0cdc` |
 | NVIDIA-NeMo/NeMo for ASR | `93b15b1f423ddc8e0d189810fdd8304091d9b1bd` |
@@ -136,7 +141,7 @@ The backend runs one retry per stage:
 5. `media_production`: Magpie TTS generates `voice_<language>.wav`; Cosmos3-Edge generates 480p video from the poster; ffmpeg composes narration and subtitles.
 6. `quality_packaging`: Nemotron ASR checks TTS round-trip similarity against threshold `0.75`; one TTS retry is attempted for a failing language; zip export is written.
 
-`ModelManager` serializes all heavy calls. In command mode the LLM server is stopped before image, video, ASR, or TTS work so the GPU memory path stays single-active.
+`ModelManager` serializes all heavy calls. In command mode the vLLM server is stopped on demand before image, video, ASR, or TTS work so the GPU memory path stays single-active.
 
 ## API Examples
 
@@ -240,7 +245,8 @@ Direct adapter benchmarks with verified models:
 
 - Single monorepo with reproducible local operations.
 - No Docker; the target path is native aarch64 Ubuntu 24.04 on DGX Spark.
-- Pinned Qwen3.6 Q4_K_M plus BF16 mmproj served by CUDA `llama.cpp`.
+- Pinned `nvidia/Qwen3.6-35B-A3B-NVFP4` served by native vLLM `0.25.1` from an isolated `.venv-vllm`, with no Docker runtime.
+- vLLM listens only on localhost `127.0.0.1:8011` and uses the DGX Spark parameters from the lifecycle script: `--tensor-parallel-size 1`, `--kv-cache-dtype fp8`, `--attention-backend flashinfer`, `--moe-backend marlin`, `--max-model-len 262144`, `--max-num-seqs 4`, `--max-num-batched-tokens 8192`, chunked prefill, prefix caching, and MTP speculative decoding.
 - Step1X defaults to 6 steps after a 176.3-second DGX image benchmark retained a usable product poster while saving about 45 seconds versus run 3.
 - Cosmos3-Edge default is 28 steps and uses the pinned Wan2.2 VAE dependency.
 - Nemotron ASR and Magpie TTS close the audio loop with measurable round-trip QC.
@@ -253,9 +259,10 @@ Direct adapter benchmarks with verified models:
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `runtime dependencies are incomplete` | Bootstrap did not finish or a pinned venv is missing imports. | Rerun `./overseaark start`; caches are reused. Inspect `./overseaark logs all` if it repeats. |
-| `Qwen3.6 GGUF is missing` | Required model file is absent from `OVERSEAARK_MODELS_DIR`. | Run `./overseaark start` or `./overseaark models sync`. |
+| `Qwen3.6 NVFP4 is missing` | Required model file is absent from `OVERSEAARK_MODELS_DIR`. | Run `./overseaark start` or `./overseaark models sync`. |
 | `model manifest verification` fails | Missing, truncated, or SHA-mismatched locked file. | Rerun `./overseaark start`; invalid locked files are removed and fetched again. |
-| `pinned CUDA llama.cpp is missing` | `vendor/llama.cpp` is absent, wrong revision, or not built. | Rerun `./overseaark bootstrap` on DGX Spark with CUDA build tools. |
+| `pinned native vLLM is missing` | `.venv-vllm` is absent or does not contain the pinned CUDA ARM64 wheel. | Rerun `./overseaark bootstrap`; remove `.venv-vllm` first only when forcing a clean reinstall. |
+| First vLLM start appears slow | FlashInfer is compiling and caching GB10/SM121 kernels. | Leave the first start running. JIT is intentionally serialized with `MAX_JOBS=1` to avoid unified-memory OOM; the verified cold-cache start took 526 seconds and later full restart took 166 seconds. Inspect `./overseaark logs llm` for progress. |
 | Adapter timeout | A heavy model exceeded `OVERSEAARK_ADAPTER_TIMEOUT`. | Check `OVERSEAARK_ADAPTER_TIMEOUT`, model logs, and GPU memory pressure; the process group is terminated on timeout. |
 | Frontend shows degraded local preview | Backend is unavailable from the browser. | Check `./overseaark status` and `http://127.0.0.1:8000/api/v1/health`. |
 | Upload rejected with 415 | Unsupported content type or image bytes do not match the declared type. | Use real PNG/JPEG/WebP files for products and WAV/MP3/M4A/WebM for audio. |

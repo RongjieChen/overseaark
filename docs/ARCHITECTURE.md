@@ -19,7 +19,7 @@ FastAPI app
   +-- CampaignRunner
   +-- serialized ModelManager
         |
-        +-- Qwen3.6 via localhost llama.cpp server
+        +-- Qwen3.6 via localhost native vLLM server
         +-- Step1X image adapter
         +-- Cosmos3-Edge video adapter + Wan2.2 VAE
         +-- Nemotron ASR adapter
@@ -75,8 +75,8 @@ Each stage has two attempts total. If the second attempt fails, later stages are
 
 `ModelManager` wraps every model hook with one `asyncio.Lock`. Command mode also calls the LLM control command before adapter transitions:
 
-- LLM tasks start local `llama-server` if needed.
-- Image, video, ASR, and TTS tasks stop the LLM server first.
+- LLM tasks start local native vLLM if needed.
+- Image, video, ASR, and TTS tasks stop native vLLM first.
 - Subprocess adapters run in their own process group.
 - Timeout or cancellation terminates the process group.
 
@@ -97,13 +97,13 @@ OVERSEAARK_ASR_COMMAND=".venv-asr/bin/python scripts/adapters/asr_nemo.py"
 OVERSEAARK_TTS_COMMAND=".venv-tts/bin/python scripts/adapters/tts_magpie.py"
 ```
 
-The LLM adapter does not call `llama-cli`; it calls the local OpenAI-compatible `llama-server` endpoint at `http://127.0.0.1:8011/v1/chat/completions`.
+The LLM adapter calls the local OpenAI-compatible vLLM endpoint at `http://127.0.0.1:8011/v1/chat/completions`.
 
 ## Model Runtime Details
 
 | Adapter | Runtime detail |
 | --- | --- |
-| Qwen3.6 | `Qwen3.6-35B-A3B-Q4_K_M.gguf` plus `mmproj-Qwen3.6-35B-A3B-BF16.gguf`; CUDA `llama.cpp`; `--gpu-layers all`; `--ctx-size 32768`; `--parallel 1`; reasoning off. |
+| Qwen3.6 | `nvidia/Qwen3.6-35B-A3B-NVFP4` revision `491c2f1ea524c639598bf8fa787a93fed5a6fbce`; about 23.45 GB of locked files; native vLLM `0.25.1` in `.venv-vllm`; localhost port `8011`; `--tensor-parallel-size 1`; `--kv-cache-dtype fp8`; `--attention-backend flashinfer`; `--moe-backend marlin`; `--max-model-len 262144`; `--max-num-seqs 4`; `--max-num-batched-tokens 8192`; chunked prefill; prefix caching; MTP speculative decoding; Qwen3 reasoning/tool parsers. |
 | Step1X | `Step1XEditPipelineV1P2`; default `OVERSEAARK_STEP1X_STEPS=6`; thinking and reflection off by default; optional CPU offload. |
 | Cosmos3-Edge | `image2video`; 480p; 16:9; 24 fps; 121 frames; default `OVERSEAARK_COSMOS_STEPS=28`; `--parallelism-preset=latency`; `--sampler=unipc`; local Wan2.2 VAE. |
 | Nemotron ASR | Restores the pinned `.nemo`; supports `auto`, `zh`, `en`, and `ja` language prompts. |
